@@ -96,6 +96,30 @@ export class CoffeeLotLineageTracker {
     this.preprocessData();
   }
 
+  private parseExcelDate(dateValue: any): string {
+    if (dateValue == null || dateValue === '') {
+      return '';
+    }
+
+    let parsedDate: Date | null = null;
+    
+    // If it's a number (Excel serial date), convert it
+    if (typeof dateValue === 'number') {
+      // Excel serial date starts from 1900-01-01
+      parsedDate = new Date((dateValue - 25569) * 86400 * 1000);
+    } else {
+      // Try to parse as string
+      parsedDate = new Date(dateValue);
+    }
+
+    // Check if valid date and return in ISO format
+    if (parsedDate && !isNaN(parsedDate.getTime())) {
+      return parsedDate.toISOString().split('T')[0];
+    }
+    
+    return String(dateValue);
+  }
+
   private preprocessData(): void {
     // Index by lot number
     this.lotRecords.clear();
@@ -227,7 +251,7 @@ export class CoffeeLotLineageTracker {
           if (prodOrder) {
             node.details.production_order = prodOrder;
             node.details.output_quantity = outputRecord['Quantity (Inv_UoM)'] || 0;
-            node.details.output_date = String(outputRecord['Date'] || '');
+            node.details.output_date = this.parseExcelDate(outputRecord['Date']);
 
             const prodRecords = this.prodOrderRecords.get(prodOrder) || [];
             const consumptionLots = new Set<string>();
@@ -276,7 +300,7 @@ export class CoffeeLotLineageTracker {
         processes['Transfer'].forEach(transferRecord => {
           const transferDetails = {
             transfer_quantity: transferRecord['Quantity (Inv_UoM)'] || 0,
-            transfer_date: String(transferRecord['Date'] || ''),
+            transfer_date: this.parseExcelDate(transferRecord['Date']),
             transferred_to: transferRecord['Lot Dest']
           };
 
@@ -298,7 +322,7 @@ export class CoffeeLotLineageTracker {
         const purchaseRecord = processes['Purchase'][0];
         node.details.purchase = {
           quantity: purchaseRecord['Quantity (Inv_UoM)'] || 0,
-          date: String(purchaseRecord['Date'] || '')
+          date: this.parseExcelDate(purchaseRecord['Date'])
         };
         node.is_origin = true;
       }
