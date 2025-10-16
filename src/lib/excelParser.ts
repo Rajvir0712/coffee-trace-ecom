@@ -175,23 +175,48 @@ export class CoffeeLotLineageTracker {
         details: {}
       };
 
-      // Add details from first record
+      // Add details from first record (robust header matching across records)
       if (lotData.length > 0) {
+        const findByPatterns = (rec: Record<string, any>, patterns: RegExp[]) => {
+          const keys = Object.keys(rec);
+          for (const key of keys) {
+            if (patterns.some((re) => re.test(key))) {
+              return { key, value: rec[key] };
+            }
+          }
+          return { key: undefined as string | undefined, value: undefined };
+        };
+
+        const findAcross = (records: LotRecord[], patterns: RegExp[]) => {
+          for (const r of records) {
+            const { key, value } = findByPatterns(r, patterns);
+            if (value != null && String(value).trim() !== '') {
+              return { key, value };
+            }
+          }
+          return { key: undefined as string | undefined, value: '' };
+        };
+
         const first = lotData[0];
+        const locMatch = findAcross(lotData, [/^location\s*code$/i, /location\s*code/i, /location/i]);
+        const cpMatch = findAcross(lotData, [/counter\s*party/i, /counterparty/i, /vendor/i, /customer/i]);
+
         node.details = {
           item_no: first['Item No_'] || '',
           description: first['Description'] || '',
           certified: first['Certified'] || '',
           unit_of_measure: first['Unit of Measure'] || 'KG',
-          location_code: first['Location Code'] || '',
-          counterparty: first['Counterparty'] || ''
+          location_code: String(locMatch.value ?? ''),
+          counterparty: String(cpMatch.value ?? '')
         };
         
-        // Debug: Log what we're extracting
+        // Debug: Log what we're extracting and matched keys
         console.log(`Details for lot ${lot}:`, {
-          location_code: first['Location Code'],
-          counterparty: first['Counterparty'],
-          available_keys: Object.keys(first)
+          matched_location_key: locMatch.key,
+          matched_counterparty_key: cpMatch.key,
+          location_code: node.details.location_code,
+          counterparty: node.details.counterparty,
+          sample_keys: Object.keys(first)
         });
       }
 
