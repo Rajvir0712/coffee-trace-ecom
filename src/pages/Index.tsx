@@ -7,9 +7,10 @@ import { LotInput } from "@/components/LotInput";
 import { JsonViewer } from "@/components/JsonViewer";
 import { StatsCard } from "@/components/StatsCard";
 import { LineageFlowGraph } from "@/components/LineageFlowGraph";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { CoffeeLotLineageTracker, LineageResult, LotStatistics } from "@/lib/excelParser";
 import { toast } from "sonner";
-import { Coffee, TrendingUp, Package, Calendar, Loader2 } from "lucide-react";
+import { Coffee, TrendingUp, Package, Calendar, Loader2, Maximize2, Minimize2 } from "lucide-react";
 
 const Index = () => {
   const [file, setFile] = useState<File | null>(null);
@@ -20,6 +21,7 @@ const Index = () => {
   const [statistics, setStatistics] = useState<LotStatistics | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   const handleFileSelect = async (selectedFile: File) => {
     setFile(selectedFile);
@@ -78,14 +80,17 @@ const Index = () => {
       {/* Header */}
       <header className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-10">
         <div className="container mx-auto px-4 py-6">
-          <div className="flex items-center gap-3">
-            <Coffee className="w-8 h-8 text-primary" />
-            <div>
-              <h1 className="text-3xl font-bold text-foreground">Coffee Lot Lineage Tracker</h1>
-              <p className="text-muted-foreground mt-1">
-                Trace the complete supply chain journey of coffee lots
-              </p>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <Coffee className="w-8 h-8 text-primary" />
+              <div>
+                <h1 className="text-3xl font-bold text-foreground">Coffee Lot Lineage Tracker</h1>
+                <p className="text-muted-foreground mt-1">
+                  Trace the complete supply chain journey of coffee lots
+                </p>
+              </div>
             </div>
+            <ThemeToggle />
           </div>
         </div>
       </header>
@@ -181,13 +186,31 @@ const Index = () => {
           </div>
 
           {/* Right Panel - Results */}
-          <div className="lg:col-span-2">
-            <Card className="min-h-[600px]">
+          <div className={isFullscreen ? "fixed inset-0 z-50 bg-background" : "lg:col-span-2"}>
+            <Card className={isFullscreen ? "h-full rounded-none" : "min-h-[600px]"}>
               <CardHeader>
-                <CardTitle>Lineage Results</CardTitle>
-                <CardDescription>
-                  Complete lineage tree and statistics for the traced lot
-                </CardDescription>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>Lineage Results</CardTitle>
+                    <CardDescription>
+                      Complete lineage tree and statistics for the traced lot
+                    </CardDescription>
+                  </div>
+                  {lineageResult && (
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => setIsFullscreen(!isFullscreen)}
+                      className="shrink-0"
+                    >
+                      {isFullscreen ? (
+                        <Minimize2 className="h-4 w-4" />
+                      ) : (
+                        <Maximize2 className="h-4 w-4" />
+                      )}
+                    </Button>
+                  )}
+                </div>
               </CardHeader>
               <CardContent>
                 {lineageResult ? (
