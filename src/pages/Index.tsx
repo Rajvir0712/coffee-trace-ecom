@@ -175,9 +175,9 @@ const Index = () => {
                   {statistics.date_range.earliest && (
                     <StatsCard
                       title="Date Range"
-                      value={`${new Date(statistics.date_range.earliest).toLocaleDateString()}`}
+                      value={statistics.date_range.earliest}
                       icon={Calendar}
-                      description={`to ${statistics.date_range.latest ? new Date(statistics.date_range.latest).toLocaleDateString() : 'N/A'}`}
+                      description={`to ${statistics.date_range.latest || 'N/A'}`}
                     />
                   )}
                 </CardContent>

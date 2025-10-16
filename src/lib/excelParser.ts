@@ -298,6 +298,8 @@ export class CoffeeLotLineageTracker {
 
     const itemsSet = new Set<string>();
     const prodOrdersSet = new Set<string>();
+    let earliestDate: Date | null = null;
+    let latestDate: Date | null = null;
 
     lotData.forEach(record => {
       const processType = record['Process Type'] || 'Unknown';
@@ -318,19 +320,42 @@ export class CoffeeLotLineageTracker {
         prodOrdersSet.add(prodOrder);
       }
 
-      const date = String(record['Date'] || '');
-      if (date) {
-        if (!stats.date_range.earliest || date < stats.date_range.earliest) {
-          stats.date_range.earliest = date;
+      // Parse date - Excel dates might be serial numbers or strings
+      const dateValue = record['Date'];
+      if (dateValue != null && dateValue !== '') {
+        let parsedDate: Date | null = null;
+        
+        // If it's a number (Excel serial date), convert it
+        if (typeof dateValue === 'number') {
+          // Excel serial date starts from 1900-01-01
+          parsedDate = new Date((dateValue - 25569) * 86400 * 1000);
+        } else {
+          // Try to parse as string
+          parsedDate = new Date(dateValue);
         }
-        if (!stats.date_range.latest || date > stats.date_range.latest) {
-          stats.date_range.latest = date;
+
+        // Check if valid date
+        if (parsedDate && !isNaN(parsedDate.getTime())) {
+          if (!earliestDate || parsedDate < earliestDate) {
+            earliestDate = parsedDate;
+          }
+          if (!latestDate || parsedDate > latestDate) {
+            latestDate = parsedDate;
+          }
         }
       }
     });
 
     stats.items = Array.from(itemsSet);
     stats.production_orders = Array.from(prodOrdersSet);
+    
+    // Store dates in ISO format for consistent display
+    if (earliestDate) {
+      stats.date_range.earliest = earliestDate.toISOString().split('T')[0];
+    }
+    if (latestDate) {
+      stats.date_range.latest = latestDate.toISOString().split('T')[0];
+    }
 
     return stats;
   }
