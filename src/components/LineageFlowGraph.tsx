@@ -30,33 +30,42 @@ export const LineageFlowGraph = ({ data }: LineageFlowGraphProps) => {
     const edges: Edge[] = [];
     const visitedNodes = new Set<string>();
     let nodeId = 0;
+    let maxDepth = 0;
 
-    const traverse = (node: LineageNode, x: number, y: number, parentId: string | null) => {
+    // First pass: calculate depths for proper positioning
+    const calculateDepths = (node: LineageNode, depth: number = 0): number => {
+      if (visitedNodes.has(node.lot_no)) return depth;
+      visitedNodes.add(node.lot_no);
+      
+      if (!node.sources || node.sources.length === 0) {
+        return depth;
+      }
+      
+      let maxChildDepth = depth;
+      node.sources.forEach(source => {
+        const childDepth = calculateDepths(source, depth + 1);
+        maxChildDepth = Math.max(maxChildDepth, childDepth);
+      });
+      
+      return maxChildDepth;
+    };
+
+    maxDepth = calculateDepths(rootNode);
+    visitedNodes.clear();
+
+    const traverse = (node: LineageNode, depth: number, y: number, parentId: string | null) => {
       const currentId = `node-${nodeId++}`;
       
       // Avoid duplicate nodes
       if (visitedNodes.has(node.lot_no)) {
-        // Still create edge if there's a parent
-        if (parentId) {
-          edges.push({
-            id: `edge-${parentId}-${currentId}`,
-            source: parentId,
-            target: currentId,
-            type: 'smoothstep',
-            animated: true,
-            style: { stroke: 'hsl(var(--accent))', strokeWidth: 3 },
-            markerEnd: {
-              type: MarkerType.ArrowClosed,
-              color: 'hsl(var(--accent))',
-              width: 20,
-              height: 20,
-            },
-          });
-        }
         return;
       }
 
       visitedNodes.add(node.lot_no);
+
+      // Calculate X position: reverse so origins are on left, final product on right
+      // maxDepth is the deepest level, depth 0 is root
+      const x = (maxDepth - depth) * 650 + 100;
 
       // Create node data
       const nodeData: any = {
@@ -78,12 +87,12 @@ export const LineageFlowGraph = ({ data }: LineageFlowGraphProps) => {
         targetPosition: Position.Left,
       });
 
-      // Create edge to parent
+      // Create edge from sources to this node (left to right flow)
       if (parentId) {
         edges.push({
-          id: `edge-${parentId}-${currentId}`,
-          source: parentId,
-          target: currentId,
+          id: `edge-${currentId}-${parentId}`,
+          source: currentId,
+          target: parentId,
           type: 'smoothstep',
           animated: true,
           style: { stroke: 'hsl(var(--accent))', strokeWidth: 3 },
@@ -108,19 +117,19 @@ export const LineageFlowGraph = ({ data }: LineageFlowGraphProps) => {
         });
       }
 
-      // Traverse sources (children) - horizontal layout
+      // Traverse sources (children) - they go to the left (earlier in supply chain)
       if (node.sources && node.sources.length > 0) {
-        const childSpacing = 300;
+        const childSpacing = 350;
         const startY = y - ((node.sources.length - 1) * childSpacing) / 2;
 
         node.sources.forEach((source, index) => {
-          traverse(source, x + 600, startY + index * childSpacing, currentId);
+          traverse(source, depth + 1, startY + index * childSpacing, currentId);
         });
       }
     };
 
-    // Start from left side
-    traverse(rootNode, 100, 400, null);
+    // Start from the root (queried lot) which will be on the right
+    traverse(rootNode, 0, 400, null);
 
     return { nodes, edges };
   }, []);
@@ -140,7 +149,7 @@ export const LineageFlowGraph = ({ data }: LineageFlowGraphProps) => {
         onEdgesChange={onEdgesChange}
         nodeTypes={nodeTypes}
         fitView
-        fitViewOptions={{ padding: 0.15 }}
+        fitViewOptions={{ padding: 0.12 }}
         minZoom={0.2}
         maxZoom={1.5}
         defaultEdgeOptions={{
