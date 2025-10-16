@@ -160,11 +160,6 @@ const Index = () => {
                     icon={Package}
                   />
                   <StatsCard
-                    title="Total Quantity"
-                    value={`${statistics.total_quantity.toFixed(2)} KG`}
-                    icon={TrendingUp}
-                  />
-                  <StatsCard
                     title="Process Types"
                     value={Object.keys(statistics.process_types).length}
                     icon={Coffee}
