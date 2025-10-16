@@ -20,6 +20,7 @@ export interface LineageNode {
   lot_no: string;
   process_types?: string[];
   sources: LineageNode[];
+  destinations?: LineageNode[];
   details: {
     item_no?: string;
     description?: string;
@@ -196,6 +197,7 @@ export class CoffeeLotLineageTracker {
         lot_no: lot,
         process_types: Object.keys(processes),
         sources: [],
+        destinations: [],
         details: {}
       };
 
@@ -298,13 +300,21 @@ export class CoffeeLotLineageTracker {
       // Process Transfer records
       if (processes['Transfer']) {
         processes['Transfer'].forEach(transferRecord => {
+          const destLot = transferRecord['Lot Dest'];
           const transferDetails = {
             transfer_quantity: transferRecord['Quantity (Inv_UoM)'] || 0,
             transfer_date: this.parseExcelDate(transferRecord['Date']),
-            transferred_to: transferRecord['Lot Dest']
+            transferred_to: destLot
           };
 
           node.details.transfer = transferDetails;
+
+          // Add destination lot as a forward connection
+          if (destLot && destLot !== lot) {
+            const destNode = traceLotOrigin(destLot, depth + 1);
+            destNode.relationship = 'Transferred to';
+            node.destinations!.push(destNode);
+          }
 
           // Find source of transfer
           this.transferDestinations.forEach((destinations, sourceLot) => {

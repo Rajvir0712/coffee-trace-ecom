@@ -93,6 +93,7 @@ export const LineageFlowGraph = ({ data }: LineageFlowGraphProps) => {
 
       ensureNode(current);
 
+      // Process source nodes (backwards - materials consumed)
       if (current.sources && current.sources.length > 0) {
         current.sources.forEach((src) => {
           ensureNode(src);
@@ -115,6 +116,32 @@ export const LineageFlowGraph = ({ data }: LineageFlowGraphProps) => {
             });
           }
           walk(src);
+        });
+      }
+
+      // Process destination nodes (forwards - transferred to)
+      if (current.destinations && current.destinations.length > 0) {
+        current.destinations.forEach((dest) => {
+          ensureNode(dest);
+          // Edge from current to destination (forward flow)
+          const edgeId = `${current.lot_no}->${dest.lot_no}`;
+          if (!edgesList.find((e) => e.id === edgeId)) {
+            edgesList.push({
+              id: edgeId,
+              source: current.lot_no,
+              target: dest.lot_no,
+              type: 'smoothstep',
+              animated: true,
+              style: { stroke: 'hsl(var(--secondary))', strokeWidth: 3 },
+              markerEnd: { type: MarkerType.ArrowClosed, color: 'hsl(var(--secondary))', width: 20, height: 20 },
+              label: dest.relationship || 'destination',
+              labelStyle: { fill: 'hsl(var(--foreground))', fontSize: 12, fontWeight: 600 },
+              labelBgStyle: { fill: 'hsl(var(--background))', fillOpacity: 0.9 },
+              labelBgPadding: [8, 4],
+              labelBgBorderRadius: 4,
+            });
+          }
+          walk(dest);
         });
       }
 

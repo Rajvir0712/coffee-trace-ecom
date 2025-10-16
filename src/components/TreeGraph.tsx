@@ -24,6 +24,7 @@ interface TreeNodeProps {
 const TreeNode = ({ node, isRoot = false }: TreeNodeProps) => {
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
   const hasSources = node.sources && node.sources.length > 0;
+  const hasDestinations = node.destinations && node.destinations.length > 0;
 
   const getProcessIcon = (processType: string) => {
     switch (processType.toLowerCase()) {
@@ -90,7 +91,7 @@ const TreeNode = ({ node, isRoot = false }: TreeNodeProps) => {
                 </p>
               )}
             </div>
-            {hasSources && (
+            {(hasSources || hasDestinations) && (
               <button
                 onClick={() => setIsExpanded(!isExpanded)}
                 className="flex-shrink-0 p-1 hover:bg-background/50 rounded transition-colors"
@@ -180,12 +181,38 @@ const TreeNode = ({ node, isRoot = false }: TreeNodeProps) => {
           {/* Vertical connecting line styling */}
           <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-gradient-to-b from-border/50 to-transparent" />
           
+          <div className="mb-2 text-xs font-semibold text-muted-foreground uppercase">
+            Sources (Consumed from)
+          </div>
+          
           <div className="space-y-6">
             {node.sources.map((source, idx) => (
               <div key={idx} className="relative">
                 {/* Horizontal connecting line */}
                 <div className="absolute left-[-2rem] top-6 w-8 h-0.5 bg-border/50" />
                 <TreeNode node={source} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Destinations */}
+      {hasDestinations && isExpanded && (
+        <div className="relative ml-8 mt-4 pl-8 border-l-2 border-secondary/50">
+          {/* Vertical connecting line styling */}
+          <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-gradient-to-b from-secondary/50 to-transparent" />
+          
+          <div className="mb-2 text-xs font-semibold text-secondary-foreground uppercase">
+            Destinations (Transferred to)
+          </div>
+          
+          <div className="space-y-6">
+            {node.destinations.map((dest, idx) => (
+              <div key={idx} className="relative">
+                {/* Horizontal connecting line */}
+                <div className="absolute left-[-2rem] top-6 w-8 h-0.5 bg-secondary/50" />
+                <TreeNode node={dest} />
               </div>
             ))}
           </div>
