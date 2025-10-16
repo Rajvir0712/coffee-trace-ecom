@@ -6,7 +6,7 @@ import { FileUpload } from "@/components/FileUpload";
 import { LotInput } from "@/components/LotInput";
 import { JsonViewer } from "@/components/JsonViewer";
 import { StatsCard } from "@/components/StatsCard";
-import { TreeGraph } from "@/components/TreeGraph";
+import { LineageFlowGraph } from "@/components/LineageFlowGraph";
 import { CoffeeLotLineageTracker, LineageResult, LotStatistics } from "@/lib/excelParser";
 import { toast } from "sonner";
 import { Coffee, TrendingUp, Package, Calendar, Loader2 } from "lucide-react";
@@ -193,12 +193,12 @@ const Index = () => {
                 {lineageResult ? (
                   <Tabs defaultValue="graph" className="w-full">
                     <TabsList className="grid w-full grid-cols-3">
-                      <TabsTrigger value="graph">Tree Graph</TabsTrigger>
+                      <TabsTrigger value="graph">Flow Graph</TabsTrigger>
                       <TabsTrigger value="json">JSON View</TabsTrigger>
                       <TabsTrigger value="summary">Summary</TabsTrigger>
                     </TabsList>
                     <TabsContent value="graph" className="mt-6">
-                      <TreeGraph data={lineageResult.lineage_tree} />
+                      <LineageFlowGraph data={lineageResult.lineage_tree} />
                     </TabsContent>
                     <TabsContent value="json" className="mt-6">
                       <JsonViewer
