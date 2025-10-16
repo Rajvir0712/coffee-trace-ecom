@@ -79,14 +79,14 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-accent/5">
       {/* Header */}
-      <header className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-10">
-        <div className="container mx-auto px-4 py-6">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <img src={logo} alt="ECOM Logo" className="w-12 h-12" />
-              <div>
-                <h1 className="text-3xl font-bold text-foreground">ECOM Traceability Tracker</h1>
-                <p className="text-muted-foreground mt-1">
+      <header className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-10 shadow-sm">
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <img src={logo} alt="ECOM Logo" className="h-14 w-auto object-contain" />
+              <div className="flex flex-col">
+                <h1 className="text-2xl font-bold text-primary leading-tight">ECOM Traceability Tracker</h1>
+                <p className="text-sm text-muted-foreground">
                   Trace the complete supply chain journey of coffee lots
                 </p>
               </div>
