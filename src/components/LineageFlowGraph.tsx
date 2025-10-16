@@ -40,14 +40,16 @@ export const LineageFlowGraph = ({ data }: LineageFlowGraphProps) => {
         if (parentId) {
           edges.push({
             id: `edge-${parentId}-${currentId}`,
-            source: currentId,
-            target: parentId,
+            source: parentId,
+            target: currentId,
             type: 'smoothstep',
             animated: true,
-            style: { stroke: 'hsl(var(--accent))', strokeWidth: 2 },
+            style: { stroke: 'hsl(var(--accent))', strokeWidth: 3 },
             markerEnd: {
               type: MarkerType.ArrowClosed,
               color: 'hsl(var(--accent))',
+              width: 20,
+              height: 20,
             },
           });
         }
@@ -72,49 +74,53 @@ export const LineageFlowGraph = ({ data }: LineageFlowGraphProps) => {
         type: 'custom',
         position: { x, y },
         data: nodeData,
-        sourcePosition: Position.Left,
-        targetPosition: Position.Right,
+        sourcePosition: Position.Right,
+        targetPosition: Position.Left,
       });
 
       // Create edge to parent
       if (parentId) {
         edges.push({
-          id: `edge-${currentId}-${parentId}`,
-          source: currentId,
-          target: parentId,
+          id: `edge-${parentId}-${currentId}`,
+          source: parentId,
+          target: currentId,
           type: 'smoothstep',
           animated: true,
-          style: { stroke: 'hsl(var(--accent))', strokeWidth: 2 },
+          style: { stroke: 'hsl(var(--accent))', strokeWidth: 3 },
           markerEnd: {
             type: MarkerType.ArrowClosed,
             color: 'hsl(var(--accent))',
+            width: 20,
+            height: 20,
           },
           label: node.relationship || '',
           labelStyle: { 
             fill: 'hsl(var(--foreground))',
-            fontSize: 10,
-            fontWeight: 500,
+            fontSize: 12,
+            fontWeight: 600,
           },
           labelBgStyle: {
             fill: 'hsl(var(--background))',
-            fillOpacity: 0.8,
+            fillOpacity: 0.9,
           },
+          labelBgPadding: [8, 4],
+          labelBgBorderRadius: 4,
         });
       }
 
-      // Traverse sources (children)
+      // Traverse sources (children) - horizontal layout
       if (node.sources && node.sources.length > 0) {
-        const childSpacing = 250;
+        const childSpacing = 300;
         const startY = y - ((node.sources.length - 1) * childSpacing) / 2;
 
         node.sources.forEach((source, index) => {
-          traverse(source, x - 450, startY + index * childSpacing, currentId);
+          traverse(source, x + 600, startY + index * childSpacing, currentId);
         });
       }
     };
 
-    // Start from center-right
-    traverse(rootNode, 800, 300, null);
+    // Start from left side
+    traverse(rootNode, 100, 400, null);
 
     return { nodes, edges };
   }, []);
@@ -126,7 +132,7 @@ export const LineageFlowGraph = ({ data }: LineageFlowGraphProps) => {
   }, [data, buildNodesAndEdges, setNodes, setEdges]);
 
   return (
-    <div className="w-full h-[700px] rounded-lg border border-border overflow-hidden bg-gradient-to-br from-background via-background to-accent/5">
+    <div className="w-full h-[800px] rounded-lg border border-border overflow-hidden bg-gradient-to-br from-background via-background to-accent/5">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -134,12 +140,12 @@ export const LineageFlowGraph = ({ data }: LineageFlowGraphProps) => {
         onEdgesChange={onEdgesChange}
         nodeTypes={nodeTypes}
         fitView
-        fitViewOptions={{ padding: 0.2 }}
-        minZoom={0.1}
-        maxZoom={2}
+        fitViewOptions={{ padding: 0.15 }}
+        minZoom={0.2}
+        maxZoom={1.5}
         defaultEdgeOptions={{
           animated: true,
-          style: { strokeWidth: 2 },
+          style: { strokeWidth: 3 },
         }}
       >
         <Background color="hsl(var(--muted-foreground))" gap={16} />
