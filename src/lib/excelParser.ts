@@ -11,6 +11,8 @@ export interface LotRecord {
   'Date': string;
   'Prod_ Order No_': string;
   'Lot Dest': string;
+  'Location Code': string;
+  'Counterparty': string;
   [key: string]: any;
 }
 
@@ -26,6 +28,8 @@ export interface LineageNode {
     production_order?: string;
     output_quantity?: number;
     output_date?: string;
+    location_code?: string;
+    counterparty?: string;
     consumed_by?: Array<{
       produced_lot: string;
       produced_item: string;
@@ -171,7 +175,9 @@ export class CoffeeLotLineageTracker {
           item_no: first['Item No_'] || '',
           description: first['Description'] || '',
           certified: first['Certified'] || '',
-          unit_of_measure: first['Unit of Measure'] || 'KG'
+          unit_of_measure: first['Unit of Measure'] || 'KG',
+          location_code: first['Location Code'] || '',
+          counterparty: first['Counterparty'] || ''
         };
       }
 

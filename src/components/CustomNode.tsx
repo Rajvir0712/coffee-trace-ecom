@@ -15,6 +15,8 @@ interface CustomNodeData {
     output_quantity?: number;
     production_order?: string;
     output_date?: string;
+    location_code?: string;
+    counterparty?: string;
     transfer?: {
       transfer_quantity: number;
       transfer_date: string;
@@ -146,6 +148,18 @@ export const CustomNode = memo(({ data }: NodeProps) => {
               <div className="flex justify-between gap-4">
                 <span className="text-muted-foreground">certified:</span>
                 <span className="text-accent font-semibold text-right">"{details.certified}"</span>
+              </div>
+            )}
+            {details.location_code && (
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground">location_code:</span>
+                <span className="text-foreground text-right">"{details.location_code}"</span>
+              </div>
+            )}
+            {details.counterparty && (
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground">counterparty:</span>
+                <span className="text-foreground text-right">"{details.counterparty}"</span>
               </div>
             )}
             {details.unit_of_measure && (
