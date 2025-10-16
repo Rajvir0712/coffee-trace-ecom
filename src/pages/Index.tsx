@@ -11,6 +11,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { CoffeeLotLineageTracker, LineageResult, LotStatistics } from "@/lib/excelParser";
 import { toast } from "sonner";
 import { Coffee, TrendingUp, Package, Calendar, Loader2, Maximize2, Minimize2 } from "lucide-react";
+import logo from "@/assets/logo.png";
 
 const Index = () => {
   const [file, setFile] = useState<File | null>(null);
@@ -82,9 +83,9 @@ const Index = () => {
         <div className="container mx-auto px-4 py-6">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <Coffee className="w-8 h-8 text-primary" />
+              <img src={logo} alt="ECOM Logo" className="w-12 h-12" />
               <div>
-                <h1 className="text-3xl font-bold text-foreground">Coffee Lot Lineage Tracker</h1>
+                <h1 className="text-3xl font-bold text-foreground">ECOM Traceability Tracker</h1>
                 <p className="text-muted-foreground mt-1">
                   Trace the complete supply chain journey of coffee lots
                 </p>
@@ -295,7 +296,7 @@ const Index = () => {
       {/* Footer */}
       <footer className="border-t bg-card/30 backdrop-blur-sm mt-12">
         <div className="container mx-auto px-4 py-6 text-center text-sm text-muted-foreground">
-          <p>Coffee Lot Lineage Tracker - Tracing supply chain transparency</p>
+          <p>ECOM Traceability Tracker - Tracing supply chain transparency</p>
         </div>
       </footer>
     </div>
