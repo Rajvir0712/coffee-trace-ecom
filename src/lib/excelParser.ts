@@ -86,6 +86,13 @@ export class CoffeeLotLineageTracker {
 
     const jsonData = XLSX.utils.sheet_to_json(worksheet) as LotRecord[];
     this.records = jsonData;
+    
+    // Debug: Log available columns from first record
+    if (jsonData.length > 0) {
+      console.log('Available Excel columns:', Object.keys(jsonData[0]));
+      console.log('Sample record:', jsonData[0]);
+    }
+    
     this.preprocessData();
   }
 
@@ -179,6 +186,13 @@ export class CoffeeLotLineageTracker {
           location_code: first['Location Code'] || '',
           counterparty: first['Counterparty'] || ''
         };
+        
+        // Debug: Log what we're extracting
+        console.log(`Details for lot ${lot}:`, {
+          location_code: first['Location Code'],
+          counterparty: first['Counterparty'],
+          available_keys: Object.keys(first)
+        });
       }
 
       // Process Output records
