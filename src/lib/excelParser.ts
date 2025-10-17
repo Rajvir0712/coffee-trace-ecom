@@ -132,6 +132,28 @@ export class CoffeeLotLineageTracker {
       acomNavProduction: this.acomNavProduction.length
     });
     
+    // Debug: Log column names from each sheet
+    if (this.eaclNavision.length > 0) {
+      console.log('EACL Navision columns:', Object.keys(this.eaclNavision[0]));
+      console.log('EACL Navision sample:', this.eaclNavision[0]);
+    }
+    if (this.acomSale.length > 0) {
+      console.log('ACOM Sale columns:', Object.keys(this.acomSale[0]));
+      console.log('ACOM Sale sample:', this.acomSale[0]);
+    }
+    if (this.acomNavTransform.length > 0) {
+      console.log('ACOM Transform columns:', Object.keys(this.acomNavTransform[0]));
+      console.log('ACOM Transform sample:', this.acomNavTransform[0]);
+    }
+    if (this.acomNavBridge.length > 0) {
+      console.log('ACOM Bridge columns:', Object.keys(this.acomNavBridge[0]));
+      console.log('ACOM Bridge sample:', this.acomNavBridge[0]);
+    }
+    if (this.acomNavProduction.length > 0) {
+      console.log('ACOM Production columns:', Object.keys(this.acomNavProduction[0]));
+      console.log('ACOM Production sample:', this.acomNavProduction[0]);
+    }
+    
     this.buildPurchaseLotMapping();
   }
 
