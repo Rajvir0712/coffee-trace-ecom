@@ -69,14 +69,20 @@ const Index = () => {
 
     try {
       if (isPurchaseMode) {
-        const joinStepsData = tracker.getJoinStepsForPurchaseLot(lotNumber.trim());
+        const { purchaseLot: resolvedLot, matchedBy } = tracker.resolvePurchaseIdentifier(lotNumber.trim());
+        if (!resolvedLot) {
+          toast.error("No EACL record matches this Lot Number or Sale Contract #");
+          setIsProcessing(false);
+          return;
+        }
+        const joinStepsData = tracker.getJoinStepsForPurchaseLot(resolvedLot);
         setJoinSteps(joinStepsData);
         
-        const results = tracker.getPurchaseLotLineage(lotNumber.trim());
+        const results = tracker.getPurchaseLotLineage(resolvedLot);
         setLineageResults(results);
         setLineageResult(null);
         setStatistics(null);
-        toast.success(`Generated ${results.length} separate lineage tree${results.length > 1 ? 's' : ''} from purchase lot`);
+        toast.success(`Matched by ${matchedBy === 'saleContract' ? 'Sale Contract #' : 'Lot Number'} · Generated ${results.length} tree${results.length > 1 ? 's' : ''}`);
       } else {
         setJoinSteps([]);
         setLineageResults([]);
@@ -143,7 +149,7 @@ const Index = () => {
                 <CardTitle>Trace Lot Lineage</CardTitle>
                 <CardDescription>
                   {isPurchaseMode 
-                    ? "Enter or select a purchase lot to trace forward through production"
+                    ? "Enter an EACL Lot Number or Sale Contract # to trace forward"
                     : "Enter or select a production lot to trace its history"
                   }
                 </CardDescription>

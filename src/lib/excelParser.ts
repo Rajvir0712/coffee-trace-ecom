@@ -695,6 +695,23 @@ export class CoffeeLotLineageTracker {
     return steps;
   }
 
+  // Resolve input as either EACL Lot Number or EACL Sale Contract # to a purchase lot (Lot Number)
+  resolvePurchaseIdentifier(input: string): { purchaseLot: string | null; matchedBy: 'lot' | 'saleContract' | null } {
+    const norm = (v: any) => String(v ?? '').trim().toUpperCase();
+    const inputNorm = norm(input);
+
+    for (const eacl of this.eaclNavision) {
+      if (norm(eacl['Lot Number']) === inputNorm) {
+        return { purchaseLot: String(eacl['Lot Number']), matchedBy: 'lot' };
+      }
+      if (norm(eacl['Sale Contract #']) === inputNorm) {
+        return { purchaseLot: String(eacl['Lot Number']), matchedBy: 'saleContract' };
+      }
+    }
+
+    return { purchaseLot: null, matchedBy: null };
+  }
+
   getPurchaseLotLineage(purchaseLot: string, maxDepth: number = 50): LineageResult[] {
     const productionLots = this.getProductionLotsFromPurchase(purchaseLot);
     
