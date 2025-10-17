@@ -162,15 +162,15 @@ export class CoffeeLotLineageTracker {
     
     // Step 1: EACL Navision ["Lot Number"] -> ACOM Navision Sale ["Sale Contract"]
     const step1: Array<{purchaseLot: string, saleContract: string, saleLot: string}> = [];
+    const norm = (v: any) => String(v ?? '').trim().toUpperCase();
     this.eaclNavision.forEach(eacl => {
       const purchaseLot = eacl['Lot Number'];
-      const saleContract = eacl['Sale Contract #'];
-      
+      const lotNumberNorm = norm(purchaseLot);
       this.acomSale.forEach(acom => {
-        if (acom['Sale Contract'] === saleContract) {
+        if (norm(acom['Sale Contract']) === lotNumberNorm) {
           step1.push({
             purchaseLot: purchaseLot,
-            saleContract: saleContract,
+            saleContract: acom['Sale Contract'],
             saleLot: acom['Lot #']
           });
         }
@@ -182,7 +182,7 @@ export class CoffeeLotLineageTracker {
     const step2: Array<{purchaseLot: string, saleLot: string, productionLot: string}> = [];
     step1.forEach(item => {
       this.acomNavTransform.forEach(transform => {
-        if (transform['Sale Lot'] === item.saleLot) {
+        if (norm(transform['Sale Lot']) === norm(item.saleLot)) {
           step2.push({
             purchaseLot: item.purchaseLot,
             saleLot: item.saleLot,
@@ -197,7 +197,7 @@ export class CoffeeLotLineageTracker {
     const step3: Array<{purchaseLot: string, productionLot: string, bridgeDestLot: string}> = [];
     step2.forEach(item => {
       this.acomNavBridge.forEach(bridge => {
-        if (bridge['Lot No_(O)'] === item.productionLot) {
+        if (norm(bridge['Lot No_(O)']) === norm(item.productionLot)) {
           step3.push({
             purchaseLot: item.purchaseLot,
             productionLot: item.productionLot,
@@ -212,7 +212,7 @@ export class CoffeeLotLineageTracker {
     const step4: Array<{purchaseLot: string, bridgeDestLot: string, prodOrder: string}> = [];
     step3.forEach(item => {
       this.acomNavProduction.forEach(prod => {
-        if (prod['Lot No_'] === item.bridgeDestLot) {
+        if (norm(prod['Lot No_']) === norm(item.bridgeDestLot)) {
           const prodOrder = prod['Prod_ Order No_'];
           step4.push({
             purchaseLot: item.purchaseLot,
@@ -603,14 +603,14 @@ export class CoffeeLotLineageTracker {
     
     // Step 1: EACL Navision -> ACOM Sale
     const step1Matches: any[] = [];
+    const norm = (v: any) => String(v ?? '').trim().toUpperCase();
     this.eaclNavision.forEach(eacl => {
-      if (eacl['Lot Number'] === purchaseLot) {
-        const saleContract = eacl['Sale Contract #'];
+      if (norm(eacl['Lot Number']) === norm(purchaseLot)) {
         this.acomSale.forEach(acom => {
-          if (acom['Sale Contract'] === saleContract) {
+          if (norm(acom['Sale Contract']) === norm(eacl['Lot Number'])) {
             step1Matches.push({
-              purchaseLot: purchaseLot,
-              saleContract: saleContract,
+              purchaseLot: eacl['Lot Number'],
+              saleContract: acom['Sale Contract'],
               saleLot: acom['Lot #']
             });
           }
@@ -626,7 +626,7 @@ export class CoffeeLotLineageTracker {
     const step2Matches: any[] = [];
     step1Matches.forEach(item => {
       this.acomNavTransform.forEach(transform => {
-        if (transform['Sale Lot'] === item.saleLot) {
+        if (norm(transform['Sale Lot']) === norm(item.saleLot)) {
           step2Matches.push({
             saleLot: item.saleLot,
             productionLot: transform['Production Lot']
@@ -643,7 +643,7 @@ export class CoffeeLotLineageTracker {
     const step3Matches: any[] = [];
     step2Matches.forEach(item => {
       this.acomNavBridge.forEach(bridge => {
-        if (bridge['Lot No_(O)'] === item.productionLot) {
+        if (norm(bridge['Lot No_(O)']) === norm(item.productionLot)) {
           step3Matches.push({
             productionLot: item.productionLot,
             bridgeDestLot: bridge['Lot No_(D)']
@@ -660,7 +660,7 @@ export class CoffeeLotLineageTracker {
     const step4Matches: any[] = [];
     step3Matches.forEach(item => {
       this.acomNavProduction.forEach(prod => {
-        if (prod['Lot No_'] === item.bridgeDestLot) {
+        if (norm(prod['Lot No_']) === norm(item.bridgeDestLot)) {
           step4Matches.push({
             bridgeDestLot: item.bridgeDestLot,
             prodOrder: prod['Prod_ Order No_']
