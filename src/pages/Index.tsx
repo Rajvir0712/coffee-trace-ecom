@@ -23,7 +23,6 @@ const Index = () => {
   const [availableLots, setAvailableLots] = useState<string[]>([]);
   const [availablePurchaseLots, setAvailablePurchaseLots] = useState<string[]>([]);
   const [lineageResult, setLineageResult] = useState<LineageResult | null>(null);
-  const [lineageResults, setLineageResults] = useState<LineageResult[]>([]);
   const [statistics, setStatistics] = useState<LotStatistics | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -68,25 +67,19 @@ const Index = () => {
     setIsProcessing(true);
 
     try {
+      let result: LineageResult;
+      
       if (isPurchaseMode) {
-        const { purchaseLot: resolvedLot, matchedBy } = tracker.resolvePurchaseIdentifier(lotNumber.trim());
-        if (!resolvedLot) {
-          toast.error("No EACL record matches this Lot Number or Sale Contract #");
-          setIsProcessing(false);
-          return;
-        }
-        const joinStepsData = tracker.getJoinStepsForPurchaseLot(resolvedLot);
+        const joinStepsData = tracker.getJoinStepsForPurchaseLot(lotNumber.trim());
         setJoinSteps(joinStepsData);
         
-        const results = tracker.getPurchaseLotLineage(resolvedLot);
-        setLineageResults(results);
-        setLineageResult(null);
-        setStatistics(null);
-        toast.success(`Matched by ${matchedBy === 'saleContract' ? 'Sale Contract #' : 'Lot Number'} · Generated ${results.length} tree${results.length > 1 ? 's' : ''}`);
+        result = tracker.getPurchaseLotLineage(lotNumber.trim());
+        setLineageResult(result);
+        setStatistics(null); // No direct stats for purchase lots
+        toast.success(`Traced ${result.total_lots_traced} lots from purchase lot`);
       } else {
         setJoinSteps([]);
-        setLineageResults([]);
-        const result = tracker.getLotLineage(lotNumber.trim());
+        result = tracker.getLotLineage(lotNumber.trim());
         setLineageResult(result);
 
         const stats = tracker.getLotStatistics(lotNumber.trim());
@@ -149,7 +142,7 @@ const Index = () => {
                 <CardTitle>Trace Lot Lineage</CardTitle>
                 <CardDescription>
                   {isPurchaseMode 
-                    ? "Enter an EACL Lot Number or Sale Contract # to trace forward"
+                    ? "Enter or select a purchase lot to trace forward through production"
                     : "Enter or select a production lot to trace its history"
                   }
                 </CardDescription>
@@ -255,79 +248,11 @@ const Index = () => {
                 </div>
               </CardHeader>
               <CardContent>
-                {lineageResults.length > 0 ? (
+                {lineageResult ? (
                   <div className="space-y-6">
                     {joinSteps.length > 0 && (
                       <JoinStepsViewer steps={joinSteps} />
                     )}
-                    <div className="mb-4 p-3 bg-primary/10 rounded-lg">
-                      <p className="text-sm font-medium">
-                        Generated {lineageResults.length} separate lineage tree{lineageResults.length > 1 ? 's' : ''} - one for each production consumption path
-                      </p>
-                    </div>
-                    <Tabs defaultValue="tree-0" className="w-full">
-                      <TabsList className="grid w-full" style={{gridTemplateColumns: `repeat(${lineageResults.length}, 1fr)`}}>
-                        {lineageResults.map((_, index) => (
-                          <TabsTrigger key={index} value={`tree-${index}`}>
-                            Tree {index + 1}
-                          </TabsTrigger>
-                        ))}
-                      </TabsList>
-                      {lineageResults.map((result, index) => (
-                        <TabsContent key={index} value={`tree-${index}`} className="mt-6">
-                          <Tabs defaultValue="graph" className="w-full">
-                            <TabsList className="grid w-full grid-cols-3">
-                              <TabsTrigger value="graph">Flow Graph</TabsTrigger>
-                              <TabsTrigger value="json">JSON View</TabsTrigger>
-                              <TabsTrigger value="summary">Summary</TabsTrigger>
-                            </TabsList>
-                            <TabsContent value="graph" className="mt-6">
-                              <LineageFlowGraph data={result.lineage_tree} />
-                            </TabsContent>
-                            <TabsContent value="json" className="mt-6">
-                              <JsonViewer
-                                data={result}
-                                filename={`${lotNumber}_lineage_${index + 1}`}
-                              />
-                            </TabsContent>
-                            <TabsContent value="summary" className="mt-6">
-                              <div className="space-y-4">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                  <div className="p-4 bg-accent/10 rounded-lg">
-                                    <div className="text-sm text-muted-foreground">Query Path</div>
-                                    <div className="text-lg font-semibold mt-1">
-                                      {result.query_lot}
-                                    </div>
-                                  </div>
-                                  <div className="p-4 bg-accent/10 rounded-lg">
-                                    <div className="text-sm text-muted-foreground">
-                                      Total Lots Traced
-                                    </div>
-                                    <div className="text-lg font-semibold mt-1">
-                                      {result.total_lots_traced}
-                                    </div>
-                                  </div>
-                                </div>
-                                <div className="p-4 bg-card border rounded-lg">
-                                  <h4 className="font-semibold mb-2">Lineage Details</h4>
-                                  <div className="space-y-2 text-sm">
-                                    <div>
-                                      <span className="text-muted-foreground">Production Lot: </span>
-                                      <span className="font-medium">
-                                        {result.lineage_tree.details.production_lot || 'N/A'}
-                                      </span>
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            </TabsContent>
-                          </Tabs>
-                        </TabsContent>
-                      ))}
-                    </Tabs>
-                  </div>
-                ) : lineageResult ? (
-                  <div className="space-y-6">
                     <Tabs defaultValue="graph" className="w-full">
                       <TabsList className="grid w-full grid-cols-3">
                         <TabsTrigger value="graph">Flow Graph</TabsTrigger>

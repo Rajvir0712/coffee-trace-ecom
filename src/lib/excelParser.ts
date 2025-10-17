@@ -27,7 +27,6 @@ export interface LineageNode {
     certified?: string;
     unit_of_measure?: string;
     production_order?: string;
-    production_lot?: string;
     output_quantity?: number;
     output_date?: string;
     location_code?: string;
@@ -161,14 +160,14 @@ export class CoffeeLotLineageTracker {
   private buildPurchaseLotMapping(): void {
     this.purchaseLotMap.clear();
     
-    // Step 1: EACL Navision ["Sale Contract #"] -> ACOM Navision Sale ["Sale Contract"]
+    // Step 1: EACL Navision ["Lot Number"] -> ACOM Navision Sale ["Sale Contract"]
     const step1: Array<{purchaseLot: string, saleContract: string, saleLot: string}> = [];
     const norm = (v: any) => String(v ?? '').trim().toUpperCase();
     this.eaclNavision.forEach(eacl => {
-      const purchaseLot = eacl['Lot Number'];  // Use Lot Number as purchase lot identifier
-      const saleContractNorm = norm(eacl['Sale Contract #']);  // Use Sale Contract # for matching
+      const purchaseLot = eacl['Lot Number'];
+      const lotNumberNorm = norm(purchaseLot);
       this.acomSale.forEach(acom => {
-        if (norm(acom['Sale Contract']) === saleContractNorm) {
+        if (norm(acom['Sale Contract']) === lotNumberNorm) {
           step1.push({
             purchaseLot: purchaseLot,
             saleContract: acom['Sale Contract'],
@@ -602,14 +601,13 @@ export class CoffeeLotLineageTracker {
   getJoinStepsForPurchaseLot(purchaseLot: string): Array<{step: string, matches: any[]}> {
     const steps: Array<{step: string, matches: any[]}> = [];
     
-    // Step 1: EACL Navision ["Sale Contract #"] -> ACOM Sale
+    // Step 1: EACL Navision -> ACOM Sale
     const step1Matches: any[] = [];
     const norm = (v: any) => String(v ?? '').trim().toUpperCase();
     this.eaclNavision.forEach(eacl => {
       if (norm(eacl['Lot Number']) === norm(purchaseLot)) {
-        const saleContractNorm = norm(eacl['Sale Contract #']);
         this.acomSale.forEach(acom => {
-          if (norm(acom['Sale Contract']) === saleContractNorm) {
+          if (norm(acom['Sale Contract']) === norm(eacl['Lot Number'])) {
             step1Matches.push({
               purchaseLot: eacl['Lot Number'],
               saleContract: acom['Sale Contract'],
@@ -695,28 +693,11 @@ export class CoffeeLotLineageTracker {
     return steps;
   }
 
-  // Resolve input as either EACL Lot Number or EACL Sale Contract # to a purchase lot (Lot Number)
-  resolvePurchaseIdentifier(input: string): { purchaseLot: string | null; matchedBy: 'lot' | 'saleContract' | null } {
-    const norm = (v: any) => String(v ?? '').trim().toUpperCase();
-    const inputNorm = norm(input);
-
-    for (const eacl of this.eaclNavision) {
-      if (norm(eacl['Lot Number']) === inputNorm) {
-        return { purchaseLot: String(eacl['Lot Number']), matchedBy: 'lot' };
-      }
-      if (norm(eacl['Sale Contract #']) === inputNorm) {
-        return { purchaseLot: String(eacl['Lot Number']), matchedBy: 'saleContract' };
-      }
-    }
-
-    return { purchaseLot: null, matchedBy: null };
-  }
-
-  getPurchaseLotLineage(purchaseLot: string, maxDepth: number = 50): LineageResult[] {
+  getPurchaseLotLineage(purchaseLot: string, maxDepth: number = 50): LineageResult {
     const productionLots = this.getProductionLotsFromPurchase(purchaseLot);
     
     if (productionLots.length === 0) {
-      return [{
+      return {
         query_lot: purchaseLot,
         total_lots_traced: 0,
         lineage_tree: {
@@ -726,37 +707,32 @@ export class CoffeeLotLineageTracker {
           details: {},
           is_origin: true
         }
-      }];
+      };
     }
 
-    // Generate a separate lineage tree for each production lot
-    const results: LineageResult[] = [];
-    
-    productionLots.forEach(prodLot => {
-      // Create a root node for this specific production lot chain
-      const rootNode: LineageNode = {
-        lot_no: purchaseLot,
-        process_types: ['Purchase'],
-        sources: [],
-        destinations: [],
-        details: {
-          production_lot: prodLot
-        },
-        is_origin: true
-      };
+    // Create a root node for the purchase lot
+    const rootNode: LineageNode = {
+      lot_no: purchaseLot,
+      process_types: ['Purchase'],
+      sources: [],
+      destinations: [],
+      details: {},
+      is_origin: true
+    };
 
-      // Get lineage for this production lot
+    // Get lineage for each production lot and add as destinations
+    const allVisited = new Set<string>();
+    productionLots.forEach(prodLot => {
       const lineageResult = this.getLotLineage(prodLot, maxDepth);
       lineageResult.lineage_tree.relationship = 'Derived from Purchase';
       rootNode.destinations!.push(lineageResult.lineage_tree);
-
-      results.push({
-        query_lot: `${purchaseLot} → ${prodLot}`,
-        total_lots_traced: 1 + (lineageResult.total_lots_traced || 0),
-        lineage_tree: rootNode
-      });
+      allVisited.add(prodLot);
     });
 
-    return results;
+    return {
+      query_lot: purchaseLot,
+      total_lots_traced: allVisited.size + 1,
+      lineage_tree: rootNode
+    };
   }
 }
