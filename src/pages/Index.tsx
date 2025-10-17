@@ -148,7 +148,7 @@ const Index = () => {
                 <CardTitle>Trace Lot Lineage</CardTitle>
                 <CardDescription>
                   {isPurchaseMode 
-                    ? "Enter or select a purchase lot to trace forward through production"
+                    ? "Enter or select a sale contract # to trace forward through production"
                     : "Enter or select a production lot to trace its history"
                   }
                 </CardDescription>
@@ -156,7 +156,7 @@ const Index = () => {
               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between p-3 bg-accent/10 rounded-lg">
                   <Label htmlFor="purchase-mode" className="cursor-pointer">
-                    {isPurchaseMode ? "Purchase Lot Mode" : "Production Lot Mode"}
+                    {isPurchaseMode ? "Sale Contract # Mode" : "Production Lot Mode"}
                   </Label>
                   <Switch
                     id="purchase-mode"
