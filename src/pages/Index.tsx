@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { FileUpload } from "@/components/FileUpload";
@@ -30,6 +31,7 @@ const Index = () => {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isPurchaseMode, setIsPurchaseMode] = useState(false);
   const [joinSteps, setJoinSteps] = useState<Array<{step: string, matches: any[]}>>([]);
+  const [selectedResultIndex, setSelectedResultIndex] = useState(0);
 
   const handleFileSelect = async (selectedFile: File) => {
     setFile(selectedFile);
@@ -38,6 +40,7 @@ const Index = () => {
     setLineageResults([]);
     setStatistics(null);
     setLotNumber("");
+    setSelectedResultIndex(0);
 
     try {
       const newTracker = new CoffeeLotLineageTracker();
@@ -77,6 +80,7 @@ const Index = () => {
         setLineageResults(results);
         setLineageResult(null);
         setStatistics(null); // No direct stats for purchase lots
+        setSelectedResultIndex(0);
         toast.success(`Found ${results.length} consumption lot(s) from purchase lot`);
       } else {
         setJoinSteps([]);
@@ -163,6 +167,7 @@ const Index = () => {
                       setLineageResult(null);
                       setLineageResults([]);
                       setStatistics(null);
+                      setSelectedResultIndex(0);
                     }}
                     disabled={!tracker}
                   />
@@ -264,92 +269,104 @@ const Index = () => {
                       </TabsList>
                       <TabsContent value="graph" className="mt-6">
                         {lineageResults.length > 0 ? (
-                          <Tabs defaultValue="0" className="w-full">
-                            <TabsList className="grid w-full" style={{gridTemplateColumns: `repeat(${lineageResults.length}, minmax(0, 1fr))`}}>
-                              {lineageResults.map((result, index) => (
-                                <TabsTrigger key={index} value={String(index)}>
-                                  {result.query_lot}
-                                </TabsTrigger>
-                              ))}
-                            </TabsList>
-                            {lineageResults.map((result, index) => (
-                              <TabsContent key={index} value={String(index)} className="mt-6">
-                                <LineageFlowGraph data={result.lineage_tree} />
-                              </TabsContent>
-                            ))}
-                          </Tabs>
+                          <>
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
+                              <div className="text-sm text-muted-foreground">Consumption lot</div>
+                              <Select value={String(selectedResultIndex)} onValueChange={(v) => setSelectedResultIndex(parseInt(v))}>
+                                <SelectTrigger className="w-full sm:w-[360px] bg-card z-50">
+                                  <SelectValue placeholder="Select lot" />
+                                </SelectTrigger>
+                                <SelectContent className="z-[60] bg-popover">
+                                  {lineageResults.map((result, index) => (
+                                    <SelectItem key={index} value={String(index)}>
+                                      {result.query_lot}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <div className="text-xs text-muted-foreground sm:ml-auto">
+                                {selectedResultIndex + 1} of {lineageResults.length}
+                              </div>
+                            </div>
+                            {lineageResults[selectedResultIndex] && (
+                              <LineageFlowGraph data={lineageResults[selectedResultIndex].lineage_tree} />
+                            )}
+                          </>
                         ) : lineageResult ? (
                           <LineageFlowGraph data={lineageResult.lineage_tree} />
                         ) : null}
                       </TabsContent>
                     <TabsContent value="json" className="mt-6">
                       <JsonViewer
-                        data={lineageResults.length > 0 ? lineageResults : lineageResult}
+                        data={lineageResults.length > 0 ? lineageResults[selectedResultIndex] : lineageResult}
                         filename={`${lotNumber}_lineage`}
                       />
                     </TabsContent>
                     <TabsContent value="summary" className="mt-6">
                       {lineageResults.length > 0 ? (
-                        <Tabs defaultValue="0" className="w-full">
-                          <TabsList className="grid w-full" style={{gridTemplateColumns: `repeat(${lineageResults.length}, minmax(0, 1fr))`}}>
-                            {lineageResults.map((result, index) => (
-                              <TabsTrigger key={index} value={String(index)}>
-                                {result.query_lot}
-                              </TabsTrigger>
-                            ))}
-                          </TabsList>
-                          {lineageResults.map((result, index) => (
-                            <TabsContent key={index} value={String(index)} className="mt-6">
-                              <div className="space-y-4">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                  <div className="p-4 bg-accent/10 rounded-lg">
-                                    <div className="text-sm text-muted-foreground">Consumption Lot</div>
-                                    <div className="text-lg font-semibold mt-1">
-                                      {result.query_lot}
-                                    </div>
-                                  </div>
-                                  <div className="p-4 bg-accent/10 rounded-lg">
-                                    <div className="text-sm text-muted-foreground">
-                                      Total Lots Traced
-                                    </div>
-                                    <div className="text-lg font-semibold mt-1">
-                                      {result.total_lots_traced}
-                                    </div>
-                                  </div>
-                                </div>
-                                <div className="p-4 bg-card border rounded-lg">
-                                  <h4 className="font-semibold mb-2">Lineage Details</h4>
-                                  <div className="space-y-2 text-sm">
-                                    <div>
-                                      <span className="text-muted-foreground">Item: </span>
-                                      <span className="font-medium">
-                                        {result.lineage_tree.details.description || 'N/A'}
-                                      </span>
-                                    </div>
-                                    <div>
-                                      <span className="text-muted-foreground">Item No: </span>
-                                      <span className="font-medium">
-                                        {result.lineage_tree.details.item_no || 'N/A'}
-                                      </span>
-                                    </div>
-                                    <div>
-                                      <span className="text-muted-foreground">Certified: </span>
-                                      <span className="font-medium">
-                                        {result.lineage_tree.details.certified || 'N/A'}
-                                      </span>
-                                    </div>
-                                    <div>
-                                      <span className="text-muted-foreground">Process Types: </span>
-                                      <span className="font-medium">
-                                        {result.lineage_tree.process_types?.join(', ') || 'N/A'}
-                                      </span>
-                                    </div>
-                                  </div>
-                                </div>
+                        <div className="space-y-4">
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                            <div className="text-sm text-muted-foreground">Consumption lot</div>
+                            <Select value={String(selectedResultIndex)} onValueChange={(v) => setSelectedResultIndex(parseInt(v))}>
+                              <SelectTrigger className="w-full sm:w-[360px] bg-card z-50">
+                                <SelectValue placeholder="Select lot" />
+                              </SelectTrigger>
+                              <SelectContent className="z-[60] bg-popover">
+                                {lineageResults.map((result, index) => (
+                                  <SelectItem key={index} value={String(index)}>
+                                    {result.query_lot}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <div className="text-xs text-muted-foreground sm:ml-auto">
+                              {selectedResultIndex + 1} of {lineageResults.length}
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="p-4 bg-accent/10 rounded-lg">
+                              <div className="text-sm text-muted-foreground">Consumption Lot</div>
+                              <div className="text-lg font-semibold mt-1">
+                                {lineageResults[selectedResultIndex]?.query_lot}
                               </div>
-                            </TabsContent>
-                          ))}
-                        </Tabs>
+                            </div>
+                            <div className="p-4 bg-accent/10 rounded-lg">
+                              <div className="text-sm text-muted-foreground">Total Lots Traced</div>
+                              <div className="text-lg font-semibold mt-1">
+                                {lineageResults[selectedResultIndex]?.total_lots_traced}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="p-4 bg-card border rounded-lg">
+                            <h4 className="font-semibold mb-2">Lineage Details</h4>
+                            <div className="space-y-2 text-sm">
+                              <div>
+                                <span className="text-muted-foreground">Item: </span>
+                                <span className="font-medium">
+                                  {lineageResults[selectedResultIndex]?.lineage_tree.details.description || 'N/A'}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-muted-foreground">Item No: </span>
+                                <span className="font-medium">
+                                  {lineageResults[selectedResultIndex]?.lineage_tree.details.item_no || 'N/A'}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-muted-foreground">Certified: </span>
+                                <span className="font-medium">
+                                  {lineageResults[selectedResultIndex]?.lineage_tree.details.certified || 'N/A'}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-muted-foreground">Process Types: </span>
+                                <span className="font-medium">
+                                  {lineageResults[selectedResultIndex]?.lineage_tree.process_types?.join(', ') || 'N/A'}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
                       ) : lineageResult ? (
                         <div className="space-y-4">
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
