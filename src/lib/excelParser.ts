@@ -161,14 +161,14 @@ export class CoffeeLotLineageTracker {
   private buildPurchaseLotMapping(): void {
     this.purchaseLotMap.clear();
     
-    // Step 1: EACL Navision ["Lot Number"] -> ACOM Navision Sale ["Sale Contract"]
+    // Step 1: EACL Navision ["Sale Contract #"] -> ACOM Navision Sale ["Sale Contract"]
     const step1: Array<{purchaseLot: string, saleContract: string, saleLot: string}> = [];
     const norm = (v: any) => String(v ?? '').trim().toUpperCase();
     this.eaclNavision.forEach(eacl => {
-      const purchaseLot = eacl['Lot Number'];
-      const lotNumberNorm = norm(purchaseLot);
+      const purchaseLot = eacl['Sale Contract #'];
+      const contractNorm = norm(purchaseLot);
       this.acomSale.forEach(acom => {
-        if (norm(acom['Sale Contract']) === lotNumberNorm) {
+        if (norm(acom['Sale Contract']) === contractNorm) {
           step1.push({
             purchaseLot: purchaseLot,
             saleContract: acom['Sale Contract'],
@@ -606,11 +606,11 @@ export class CoffeeLotLineageTracker {
     const step1Matches: any[] = [];
     const norm = (v: any) => String(v ?? '').trim().toUpperCase();
     this.eaclNavision.forEach(eacl => {
-      if (norm(eacl['Lot Number']) === norm(purchaseLot)) {
+      if (norm(eacl['Sale Contract #']) === norm(purchaseLot)) {
         this.acomSale.forEach(acom => {
-          if (norm(acom['Sale Contract']) === norm(eacl['Lot Number'])) {
+          if (norm(acom['Sale Contract']) === norm(eacl['Sale Contract #'])) {
             step1Matches.push({
-              purchaseLot: eacl['Lot Number'],
+              purchaseLot: eacl['Sale Contract #'],
               saleContract: acom['Sale Contract'],
               saleLot: acom['Lot #']
             });
