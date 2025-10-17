@@ -23,7 +23,6 @@ const Index = () => {
   const [availableLots, setAvailableLots] = useState<string[]>([]);
   const [availablePurchaseLots, setAvailablePurchaseLots] = useState<string[]>([]);
   const [lineageResult, setLineageResult] = useState<LineageResult | null>(null);
-  const [lineageResults, setLineageResults] = useState<LineageResult[]>([]);
   const [statistics, setStatistics] = useState<LotStatistics | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -35,7 +34,6 @@ const Index = () => {
     setFile(selectedFile);
     setIsLoading(true);
     setLineageResult(null);
-    setLineageResults([]);
     setStatistics(null);
     setLotNumber("");
 
@@ -69,19 +67,19 @@ const Index = () => {
     setIsProcessing(true);
 
     try {
+      let result: LineageResult;
+      
       if (isPurchaseMode) {
         const joinStepsData = tracker.getJoinStepsForPurchaseLot(lotNumber.trim());
         setJoinSteps(joinStepsData);
         
-        const results = tracker.getPurchaseLotLineage(lotNumber.trim());
-        setLineageResults(results);
-        setLineageResult(null);
-        setStatistics(null);
-        toast.success(`Found ${results.length} consumption lot(s) to trace`);
+        result = tracker.getPurchaseLotLineage(lotNumber.trim());
+        setLineageResult(result);
+        setStatistics(null); // No direct stats for purchase lots
+        toast.success(`Traced ${result.total_lots_traced} lots from purchase lot`);
       } else {
         setJoinSteps([]);
-        setLineageResults([]);
-        const result = tracker.getLotLineage(lotNumber.trim());
+        result = tracker.getLotLineage(lotNumber.trim());
         setLineageResult(result);
 
         const stats = tracker.getLotStatistics(lotNumber.trim());
@@ -161,7 +159,6 @@ const Index = () => {
                       setIsPurchaseMode(checked);
                       setLotNumber("");
                       setLineageResult(null);
-                      setLineageResults([]);
                       setStatistics(null);
                     }}
                     disabled={!tracker}
@@ -234,7 +231,7 @@ const Index = () => {
                       Complete lineage tree and statistics for the traced lot
                     </CardDescription>
                   </div>
-                  {(lineageResult || lineageResults.length > 0) && (
+                  {lineageResult && (
                     <Button
                       variant="outline"
                       size="icon"
@@ -251,7 +248,7 @@ const Index = () => {
                 </div>
               </CardHeader>
               <CardContent>
-                {lineageResult || lineageResults.length > 0 ? (
+                {lineageResult ? (
                   <div className="space-y-6">
                     {joinSteps.length > 0 && (
                       <JoinStepsViewer steps={joinSteps} />
@@ -263,112 +260,65 @@ const Index = () => {
                         <TabsTrigger value="summary">Summary</TabsTrigger>
                       </TabsList>
                       <TabsContent value="graph" className="mt-6">
-                        {lineageResults.length > 0 ? (
-                          <Tabs defaultValue="0" className="w-full">
-                            <TabsList className="grid w-full" style={{ gridTemplateColumns: `repeat(${Math.min(lineageResults.length, 5)}, 1fr)` }}>
-                              {lineageResults.slice(0, 10).map((result, idx) => (
-                                <TabsTrigger key={idx} value={idx.toString()}>
-                                  Lot {idx + 1}
-                                </TabsTrigger>
-                              ))}
-                            </TabsList>
-                            {lineageResults.map((result, idx) => (
-                              <TabsContent key={idx} value={idx.toString()} className="mt-4">
-                                <div className="mb-4 p-3 bg-accent/10 rounded-lg">
-                                  <div className="text-sm font-medium">Consumption Lot: {result.lineage_tree.lot_no}</div>
-                                  <div className="text-xs text-muted-foreground mt-1">Query: {result.query_lot}</div>
-                                </div>
-                                <LineageFlowGraph data={result.lineage_tree} />
-                              </TabsContent>
-                            ))}
-                          </Tabs>
-                        ) : lineageResult ? (
-                          <LineageFlowGraph data={lineageResult.lineage_tree} />
-                        ) : null}
+                        <LineageFlowGraph data={lineageResult.lineage_tree} />
                       </TabsContent>
                     <TabsContent value="json" className="mt-6">
                       <JsonViewer
-                        data={lineageResults.length > 0 ? lineageResults : lineageResult}
+                        data={lineageResult}
                         filename={`${lotNumber}_lineage`}
                       />
                     </TabsContent>
                     <TabsContent value="summary" className="mt-6">
-                      {lineageResults.length > 0 ? (
-                        <div className="space-y-4">
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div className="p-4 bg-accent/10 rounded-lg">
                             <div className="text-sm text-muted-foreground">Query Lot</div>
-                            <div className="text-lg font-semibold mt-1">{lotNumber}</div>
+                            <div className="text-lg font-semibold mt-1">
+                              {lineageResult.query_lot}
+                            </div>
                           </div>
                           <div className="p-4 bg-accent/10 rounded-lg">
-                            <div className="text-sm text-muted-foreground">Total Consumption Lots Found</div>
-                            <div className="text-lg font-semibold mt-1">{lineageResults.length}</div>
-                          </div>
-                          <div className="p-4 bg-card border rounded-lg">
-                            <h4 className="font-semibold mb-2">Consumption Lots</h4>
-                            <div className="space-y-2 text-sm">
-                              {lineageResults.map((result, idx) => (
-                                <div key={idx} className="p-2 bg-accent/5 rounded">
-                                  <div className="font-medium">{idx + 1}. {result.lineage_tree.lot_no}</div>
-                                  <div className="text-muted-foreground text-xs">
-                                    {result.lineage_tree.details.description || 'N/A'} - {result.total_lots_traced} lots traced
-                                  </div>
-                                </div>
-                              ))}
+                            <div className="text-sm text-muted-foreground">
+                              Total Lots Traced
+                            </div>
+                            <div className="text-lg font-semibold mt-1">
+                              {lineageResult.total_lots_traced}
                             </div>
                           </div>
                         </div>
-                      ) : lineageResult ? (
-                        <div className="space-y-4">
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="p-4 bg-accent/10 rounded-lg">
-                              <div className="text-sm text-muted-foreground">Query Lot</div>
-                              <div className="text-lg font-semibold mt-1">
-                                {lineageResult.query_lot}
-                              </div>
+                        <div className="p-4 bg-card border rounded-lg">
+                          <h4 className="font-semibold mb-2">Lineage Details</h4>
+                          <div className="space-y-2 text-sm">
+                            <div>
+                              <span className="text-muted-foreground">Item: </span>
+                              <span className="font-medium">
+                                {lineageResult.lineage_tree.details.description || 'N/A'}
+                              </span>
                             </div>
-                            <div className="p-4 bg-accent/10 rounded-lg">
-                              <div className="text-sm text-muted-foreground">
-                                Total Lots Traced
-                              </div>
-                              <div className="text-lg font-semibold mt-1">
-                                {lineageResult.total_lots_traced}
-                              </div>
+                            <div>
+                              <span className="text-muted-foreground">Item No: </span>
+                              <span className="font-medium">
+                                {lineageResult.lineage_tree.details.item_no || 'N/A'}
+                              </span>
                             </div>
-                          </div>
-                          <div className="p-4 bg-card border rounded-lg">
-                            <h4 className="font-semibold mb-2">Lineage Details</h4>
-                            <div className="space-y-2 text-sm">
-                              <div>
-                                <span className="text-muted-foreground">Item: </span>
-                                <span className="font-medium">
-                                  {lineageResult.lineage_tree.details.description || 'N/A'}
-                                </span>
-                              </div>
-                              <div>
-                                <span className="text-muted-foreground">Item No: </span>
-                                <span className="font-medium">
-                                  {lineageResult.lineage_tree.details.item_no || 'N/A'}
-                                </span>
-                              </div>
-                              <div>
-                                <span className="text-muted-foreground">Certified: </span>
-                                <span className="font-medium">
-                                  {lineageResult.lineage_tree.details.certified || 'N/A'}
-                                </span>
-                              </div>
-                              <div>
-                                <span className="text-muted-foreground">Process Types: </span>
-                                <span className="font-medium">
-                                  {lineageResult.lineage_tree.process_types?.join(', ') || 'N/A'}
-                                </span>
-                              </div>
+                            <div>
+                              <span className="text-muted-foreground">Certified: </span>
+                              <span className="font-medium">
+                                {lineageResult.lineage_tree.details.certified || 'N/A'}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Process Types: </span>
+                              <span className="font-medium">
+                                {lineageResult.lineage_tree.process_types?.join(', ') || 'N/A'}
+                              </span>
                             </div>
                           </div>
                         </div>
-                      ) : null}
+                      </div>
                     </TabsContent>
                   </Tabs>
-                   </div>
+                  </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center h-[400px] text-center">
                     <Coffee className="w-16 h-16 text-muted-foreground mb-4" />
