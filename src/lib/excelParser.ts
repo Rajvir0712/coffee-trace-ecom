@@ -27,6 +27,7 @@ export interface LineageNode {
     certified?: string;
     unit_of_measure?: string;
     production_order?: string;
+    production_lot?: string;
     output_quantity?: number;
     output_date?: string;
     location_code?: string;
@@ -693,11 +694,11 @@ export class CoffeeLotLineageTracker {
     return steps;
   }
 
-  getPurchaseLotLineage(purchaseLot: string, maxDepth: number = 50): LineageResult {
+  getPurchaseLotLineage(purchaseLot: string, maxDepth: number = 50): LineageResult[] {
     const productionLots = this.getProductionLotsFromPurchase(purchaseLot);
     
     if (productionLots.length === 0) {
-      return {
+      return [{
         query_lot: purchaseLot,
         total_lots_traced: 0,
         lineage_tree: {
@@ -707,32 +708,19 @@ export class CoffeeLotLineageTracker {
           details: {},
           is_origin: true
         }
-      };
+      }];
     }
 
-    // Create a root node for the purchase lot
-    const rootNode: LineageNode = {
-      lot_no: purchaseLot,
-      process_types: ['Purchase'],
-      sources: [],
-      destinations: [],
-      details: {},
-      is_origin: true
-    };
-
-    // Get lineage for each production lot and add as destinations
-    const allVisited = new Set<string>();
+    // Get lineage for each production/consumption lot separately
+    const results: LineageResult[] = [];
+    
     productionLots.forEach(prodLot => {
       const lineageResult = this.getLotLineage(prodLot, maxDepth);
-      lineageResult.lineage_tree.relationship = 'Derived from Purchase';
-      rootNode.destinations!.push(lineageResult.lineage_tree);
-      allVisited.add(prodLot);
+      // Add purchase lot info to the details
+      lineageResult.lineage_tree.details.production_lot = prodLot;
+      results.push(lineageResult);
     });
 
-    return {
-      query_lot: purchaseLot,
-      total_lots_traced: allVisited.size + 1,
-      lineage_tree: rootNode
-    };
+    return results;
   }
 }
