@@ -2,6 +2,8 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { FileUpload } from "@/components/FileUpload";
 import { LotInput } from "@/components/LotInput";
 import { JsonViewer } from "@/components/JsonViewer";
@@ -18,11 +20,13 @@ const Index = () => {
   const [tracker, setTracker] = useState<CoffeeLotLineageTracker | null>(null);
   const [lotNumber, setLotNumber] = useState("");
   const [availableLots, setAvailableLots] = useState<string[]>([]);
+  const [availablePurchaseLots, setAvailablePurchaseLots] = useState<string[]>([]);
   const [lineageResult, setLineageResult] = useState<LineageResult | null>(null);
   const [statistics, setStatistics] = useState<LotStatistics | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isPurchaseMode, setIsPurchaseMode] = useState(false);
 
   const handleFileSelect = async (selectedFile: File) => {
     setFile(selectedFile);
@@ -39,7 +43,10 @@ const Index = () => {
       const lots = newTracker.getAllLotNumbers();
       setAvailableLots(lots);
       
-      toast.success(`File loaded successfully! Found ${lots.length} lots.`);
+      const purchaseLots = newTracker.getAllPurchaseLots();
+      setAvailablePurchaseLots(purchaseLots);
+      
+      toast.success(`File loaded successfully! Found ${lots.length} production lots and ${purchaseLots.length} purchase lots.`);
     } catch (error) {
       toast.error(`Error loading file: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setFile(null);
@@ -58,16 +65,25 @@ const Index = () => {
     setIsProcessing(true);
 
     try {
-      const result = tracker.getLotLineage(lotNumber.trim());
-      setLineageResult(result);
-
-      const stats = tracker.getLotStatistics(lotNumber.trim());
-      if ('error' in stats) {
-        toast.error(stats.error);
-        setStatistics(null);
+      let result: LineageResult;
+      
+      if (isPurchaseMode) {
+        result = tracker.getPurchaseLotLineage(lotNumber.trim());
+        setLineageResult(result);
+        setStatistics(null); // No direct stats for purchase lots
+        toast.success(`Traced ${result.total_lots_traced} lots from purchase lot`);
       } else {
-        setStatistics(stats);
-        toast.success(`Traced ${result.total_lots_traced} lots in the lineage`);
+        result = tracker.getLotLineage(lotNumber.trim());
+        setLineageResult(result);
+
+        const stats = tracker.getLotStatistics(lotNumber.trim());
+        if ('error' in stats) {
+          toast.error(stats.error);
+          setStatistics(null);
+        } else {
+          setStatistics(stats);
+          toast.success(`Traced ${result.total_lots_traced} lots in the lineage`);
+        }
       }
     } catch (error) {
       toast.error(`Error processing lot: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -119,14 +135,33 @@ const Index = () => {
               <CardHeader>
                 <CardTitle>Trace Lot Lineage</CardTitle>
                 <CardDescription>
-                  Enter or select a lot number to trace its history
+                  {isPurchaseMode 
+                    ? "Enter or select a purchase lot to trace forward through production"
+                    : "Enter or select a production lot to trace its history"
+                  }
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+                <div className="flex items-center justify-between p-3 bg-accent/10 rounded-lg">
+                  <Label htmlFor="purchase-mode" className="cursor-pointer">
+                    {isPurchaseMode ? "Purchase Lot Mode" : "Production Lot Mode"}
+                  </Label>
+                  <Switch
+                    id="purchase-mode"
+                    checked={isPurchaseMode}
+                    onCheckedChange={(checked) => {
+                      setIsPurchaseMode(checked);
+                      setLotNumber("");
+                      setLineageResult(null);
+                      setStatistics(null);
+                    }}
+                    disabled={!tracker}
+                  />
+                </div>
                 <LotInput
                   lotNumber={lotNumber}
                   onLotNumberChange={setLotNumber}
-                  availableLots={availableLots}
+                  availableLots={isPurchaseMode ? availablePurchaseLots : availableLots}
                   disabled={!tracker || isProcessing}
                 />
                 <Button

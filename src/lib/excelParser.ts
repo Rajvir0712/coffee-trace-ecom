@@ -75,6 +75,14 @@ export class CoffeeLotLineageTracker {
   private lotRecords: Map<string, LotRecord[]> = new Map();
   private prodOrderRecords: Map<string, LotRecord[]> = new Map();
   private transferDestinations: Map<string, string[]> = new Map();
+  
+  // Multi-sheet data for purchase lot tracing
+  private eaclNavision: any[] = [];
+  private acomSale: any[] = [];
+  private acomNavTransform: any[] = [];
+  private acomNavBridge: any[] = [];
+  private acomNavProduction: any[] = [];
+  private purchaseLotMap: Map<string, string[]> = new Map(); // Maps purchase lot to production lots
 
   async loadExcelFile(file: File, sheetName: string = 'ACOM Production Consumption '): Promise<void> {
     const data = await file.arrayBuffer();
@@ -88,6 +96,9 @@ export class CoffeeLotLineageTracker {
     const jsonData = XLSX.utils.sheet_to_json(worksheet) as LotRecord[];
     this.records = jsonData;
     
+    // Load all sheets if they exist
+    this.loadAllSheets(workbook);
+    
     // Debug: Log available columns from first record
     if (jsonData.length > 0) {
       console.log('Available Excel columns:', Object.keys(jsonData[0]));
@@ -95,6 +106,104 @@ export class CoffeeLotLineageTracker {
     }
     
     this.preprocessData();
+  }
+
+  private loadAllSheets(workbook: XLSX.WorkBook): void {
+    const loadSheet = (sheetName: string): any[] => {
+      const sheet = workbook.Sheets[sheetName];
+      if (!sheet) {
+        console.warn(`Sheet "${sheetName}" not found`);
+        return [];
+      }
+      return XLSX.utils.sheet_to_json(sheet);
+    };
+
+    this.eaclNavision = loadSheet('EACL Navision');
+    this.acomSale = loadSheet('ACOM Navision Sale');
+    this.acomNavTransform = loadSheet('ACOM Nav Transform');
+    this.acomNavBridge = loadSheet('ACOM Nav Bridge');
+    this.acomNavProduction = loadSheet('ACOM Production Results ');
+    
+    console.log('Loaded sheets:', {
+      eaclNavision: this.eaclNavision.length,
+      acomSale: this.acomSale.length,
+      acomNavTransform: this.acomNavTransform.length,
+      acomNavBridge: this.acomNavBridge.length,
+      acomNavProduction: this.acomNavProduction.length
+    });
+    
+    this.buildPurchaseLotMapping();
+  }
+
+  private buildPurchaseLotMapping(): void {
+    this.purchaseLotMap.clear();
+    
+    // Perform the joins as per Python code
+    // Step 1: Join EACL Navision with ACOM Sale
+    const step1: Array<{purchaseLot: string, saleLot: string}> = [];
+    this.eaclNavision.forEach(eacl => {
+      const purchaseLot = eacl['Lot Number'];
+      const saleContract = eacl['Sale Contract #'];
+      
+      this.acomSale.forEach(acom => {
+        if (acom['Sale Contract'] === saleContract) {
+          step1.push({
+            purchaseLot: purchaseLot,
+            saleLot: acom['Lot #']
+          });
+        }
+      });
+    });
+
+    // Step 2: Join with Transform
+    const step2: Array<{purchaseLot: string, productionLot: string}> = [];
+    step1.forEach(item => {
+      this.acomNavTransform.forEach(transform => {
+        if (transform['Sale Lot'] === item.saleLot) {
+          step2.push({
+            purchaseLot: item.purchaseLot,
+            productionLot: transform['Production Lot']
+          });
+        }
+      });
+    });
+
+    // Step 3: Join with Bridge
+    const step3: Array<{purchaseLot: string, destLot: string}> = [];
+    step2.forEach(item => {
+      this.acomNavBridge.forEach(bridge => {
+        if (bridge['Lot No_(O)'] === item.productionLot) {
+          step3.push({
+            purchaseLot: item.purchaseLot,
+            destLot: bridge['Lot No_(D)']
+          });
+        }
+      });
+    });
+
+    // Step 4: Join with Production Results to get Prod Order
+    step3.forEach(item => {
+      this.acomNavProduction.forEach(prod => {
+        if (prod['Lot No_'] === item.destLot) {
+          const prodOrder = prod['Prod_ Order No_'];
+          
+          // Now find lots in Production Consumption with this prod order
+          const consumptionLots = this.records.filter(r => r['Prod_ Order No_'] === prodOrder);
+          
+          consumptionLots.forEach(lot => {
+            const lotNo = lot['Lot No_'];
+            if (!this.purchaseLotMap.has(item.purchaseLot)) {
+              this.purchaseLotMap.set(item.purchaseLot, []);
+            }
+            if (!this.purchaseLotMap.get(item.purchaseLot)!.includes(lotNo)) {
+              this.purchaseLotMap.get(item.purchaseLot)!.push(lotNo);
+            }
+          });
+        }
+      });
+    });
+    
+    console.log('Purchase lot mapping built:', this.purchaseLotMap.size, 'purchase lots');
   }
 
   private parseExcelDate(dateValue: any): string {
@@ -435,5 +544,56 @@ export class CoffeeLotLineageTracker {
 
   getAllLotNumbers(): string[] {
     return Array.from(this.lotRecords.keys()).sort();
+  }
+
+  getAllPurchaseLots(): string[] {
+    return Array.from(this.purchaseLotMap.keys()).sort();
+  }
+
+  getProductionLotsFromPurchase(purchaseLot: string): string[] {
+    return this.purchaseLotMap.get(purchaseLot) || [];
+  }
+
+  getPurchaseLotLineage(purchaseLot: string, maxDepth: number = 50): LineageResult {
+    const productionLots = this.getProductionLotsFromPurchase(purchaseLot);
+    
+    if (productionLots.length === 0) {
+      return {
+        query_lot: purchaseLot,
+        total_lots_traced: 0,
+        lineage_tree: {
+          lot_no: purchaseLot,
+          process_types: ['Purchase (Not Found in Production)'],
+          sources: [],
+          details: {},
+          is_origin: true
+        }
+      };
+    }
+
+    // Create a root node for the purchase lot
+    const rootNode: LineageNode = {
+      lot_no: purchaseLot,
+      process_types: ['Purchase'],
+      sources: [],
+      destinations: [],
+      details: {},
+      is_origin: true
+    };
+
+    // Get lineage for each production lot and add as destinations
+    const allVisited = new Set<string>();
+    productionLots.forEach(prodLot => {
+      const lineageResult = this.getLotLineage(prodLot, maxDepth);
+      lineageResult.lineage_tree.relationship = 'Derived from Purchase';
+      rootNode.destinations!.push(lineageResult.lineage_tree);
+      allVisited.add(prodLot);
+    });
+
+    return {
+      query_lot: purchaseLot,
+      total_lots_traced: allVisited.size + 1,
+      lineage_tree: rootNode
+    };
   }
 }
