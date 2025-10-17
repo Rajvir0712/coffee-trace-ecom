@@ -161,16 +161,17 @@ export class CoffeeLotLineageTracker {
   private buildPurchaseLotMapping(): void {
     this.purchaseLotMap.clear();
     
-    // Step 1: EACL Navision ["Sale Contract #"] -> ACOM Navision Sale ["Sale Contract"]
+    // Step 1: EACL Navision [Lot Number / Purchase Contract] -> ACOM Navision Sale ["Sale Contract"]
     const step1: Array<{purchaseLot: string, saleContract: string, saleLot: string}> = [];
     const norm = (v: any) => String(v ?? '').trim().toUpperCase();
     this.eaclNavision.forEach(eacl => {
-      const purchaseLot = eacl['Sale Contract #'];
-      const contractNorm = norm(purchaseLot);
+      const rawPurchaseLot = eacl['Lot Number'] ?? eacl['Purchase Contract'] ?? eacl['Lot #'] ?? eacl['EACL Reference'];
+      if (rawPurchaseLot == null || String(rawPurchaseLot).trim() === '') return;
+      const purchaseNorm = norm(rawPurchaseLot);
       this.acomSale.forEach(acom => {
-        if (norm(acom['Sale Contract']) === contractNorm) {
+        if (norm(acom['Sale Contract']) === purchaseNorm) {
           step1.push({
-            purchaseLot: purchaseLot,
+            purchaseLot: String(rawPurchaseLot),
             saleContract: acom['Sale Contract'],
             saleLot: acom['Lot #']
           });
@@ -225,10 +226,10 @@ export class CoffeeLotLineageTracker {
     });
     console.log(`Step 4: ACOM Bridge -> ACOM Production Results: ${step4.length} matches`);
 
-    // Step 5: ACOM Production Results ["Prod_ Order No_"] -> ACOM Production Consumption ["Prod_ Order No_"]
+    // Step 5: ACOM Production Results ["Prod_ Order No_"] -> ACOM Production Consumption ["Prod_ Order No_"] (Consumption only)
     const step5: Array<{purchaseLot: string, prodOrder: string, consumptionLot: string}> = [];
     step4.forEach(item => {
-      const consumptionLots = this.records.filter(r => r['Prod_ Order No_'] === item.prodOrder);
+      const consumptionLots = this.records.filter(r => r['Prod_ Order No_'] === item.prodOrder && r['Process Type'] === 'Consumption');
       
       consumptionLots.forEach(lot => {
         const lotNo = lot['Lot No_'];
@@ -606,11 +607,12 @@ export class CoffeeLotLineageTracker {
     const step1Matches: any[] = [];
     const norm = (v: any) => String(v ?? '').trim().toUpperCase();
     this.eaclNavision.forEach(eacl => {
-      if (norm(eacl['Sale Contract #']) === norm(purchaseLot)) {
+      const eaclCandidates = [eacl['Lot Number'], eacl['Purchase Contract'], eacl['Lot #'], eacl['EACL Reference']];
+      if (eaclCandidates.some(v => norm(v) === norm(purchaseLot))) {
         this.acomSale.forEach(acom => {
-          if (norm(acom['Sale Contract']) === norm(eacl['Sale Contract #'])) {
+          if (norm(acom['Sale Contract']) === norm(purchaseLot)) {
             step1Matches.push({
-              purchaseLot: eacl['Sale Contract #'],
+              purchaseLot: String(purchaseLot),
               saleContract: acom['Sale Contract'],
               saleLot: acom['Lot #']
             });
@@ -677,7 +679,7 @@ export class CoffeeLotLineageTracker {
     // Step 5: ACOM Production Results -> ACOM Consumption
     const step5Matches: any[] = [];
     step4Matches.forEach(item => {
-      const consumptionLots = this.records.filter(r => r['Prod_ Order No_'] === item.prodOrder);
+      const consumptionLots = this.records.filter(r => r['Prod_ Order No_'] === item.prodOrder && r['Process Type'] === 'Consumption');
       consumptionLots.forEach(lot => {
         step5Matches.push({
           prodOrder: item.prodOrder,
