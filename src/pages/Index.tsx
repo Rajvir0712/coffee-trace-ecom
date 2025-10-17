@@ -10,6 +10,7 @@ import { JsonViewer } from "@/components/JsonViewer";
 import { StatsCard } from "@/components/StatsCard";
 import { LineageFlowGraph } from "@/components/LineageFlowGraph";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { JoinStepsViewer } from "@/components/JoinStepsViewer";
 import { CoffeeLotLineageTracker, LineageResult, LotStatistics } from "@/lib/excelParser";
 import { toast } from "sonner";
 import { Coffee, TrendingUp, Package, Calendar, Loader2, Maximize2, Minimize2 } from "lucide-react";
@@ -27,6 +28,7 @@ const Index = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isPurchaseMode, setIsPurchaseMode] = useState(false);
+  const [joinSteps, setJoinSteps] = useState<Array<{step: string, matches: any[]}>>([]);
 
   const handleFileSelect = async (selectedFile: File) => {
     setFile(selectedFile);
@@ -68,11 +70,15 @@ const Index = () => {
       let result: LineageResult;
       
       if (isPurchaseMode) {
+        const joinStepsData = tracker.getJoinStepsForPurchaseLot(lotNumber.trim());
+        setJoinSteps(joinStepsData);
+        
         result = tracker.getPurchaseLotLineage(lotNumber.trim());
         setLineageResult(result);
         setStatistics(null); // No direct stats for purchase lots
         toast.success(`Traced ${result.total_lots_traced} lots from purchase lot`);
       } else {
+        setJoinSteps([]);
         result = tracker.getLotLineage(lotNumber.trim());
         setLineageResult(result);
 
@@ -243,15 +249,19 @@ const Index = () => {
               </CardHeader>
               <CardContent>
                 {lineageResult ? (
-                  <Tabs defaultValue="graph" className="w-full">
-                    <TabsList className="grid w-full grid-cols-3">
-                      <TabsTrigger value="graph">Flow Graph</TabsTrigger>
-                      <TabsTrigger value="json">JSON View</TabsTrigger>
-                      <TabsTrigger value="summary">Summary</TabsTrigger>
-                    </TabsList>
-                    <TabsContent value="graph" className="mt-6">
-                      <LineageFlowGraph data={lineageResult.lineage_tree} />
-                    </TabsContent>
+                  <div className="space-y-6">
+                    {joinSteps.length > 0 && (
+                      <JoinStepsViewer steps={joinSteps} />
+                    )}
+                    <Tabs defaultValue="graph" className="w-full">
+                      <TabsList className="grid w-full grid-cols-3">
+                        <TabsTrigger value="graph">Flow Graph</TabsTrigger>
+                        <TabsTrigger value="json">JSON View</TabsTrigger>
+                        <TabsTrigger value="summary">Summary</TabsTrigger>
+                      </TabsList>
+                      <TabsContent value="graph" className="mt-6">
+                        <LineageFlowGraph data={lineageResult.lineage_tree} />
+                      </TabsContent>
                     <TabsContent value="json" className="mt-6">
                       <JsonViewer
                         data={lineageResult}
@@ -308,6 +318,7 @@ const Index = () => {
                       </div>
                     </TabsContent>
                   </Tabs>
+                  </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center h-[400px] text-center">
                     <Coffee className="w-16 h-16 text-muted-foreground mb-4" />

@@ -138,9 +138,8 @@ export class CoffeeLotLineageTracker {
   private buildPurchaseLotMapping(): void {
     this.purchaseLotMap.clear();
     
-    // Perform the joins as per Python code
-    // Step 1: Join EACL Navision with ACOM Sale
-    const step1: Array<{purchaseLot: string, saleLot: string}> = [];
+    // Step 1: EACL Navision ["Lot Number"] -> ACOM Navision Sale ["Sale Contract"]
+    const step1: Array<{purchaseLot: string, saleContract: string, saleLot: string}> = [];
     this.eaclNavision.forEach(eacl => {
       const purchaseLot = eacl['Lot Number'];
       const saleContract = eacl['Sale Contract #'];
@@ -149,59 +148,82 @@ export class CoffeeLotLineageTracker {
         if (acom['Sale Contract'] === saleContract) {
           step1.push({
             purchaseLot: purchaseLot,
+            saleContract: saleContract,
             saleLot: acom['Lot #']
           });
         }
       });
     });
+    console.log(`Step 1: EACL Navision -> ACOM Sale: ${step1.length} matches`);
 
-    // Step 2: Join with Transform
-    const step2: Array<{purchaseLot: string, productionLot: string}> = [];
+    // Step 2: ACOM Navision Sale ["Lot #"] -> ACOM Nav Transform ["Sale Lot"]
+    const step2: Array<{purchaseLot: string, saleLot: string, productionLot: string}> = [];
     step1.forEach(item => {
       this.acomNavTransform.forEach(transform => {
         if (transform['Sale Lot'] === item.saleLot) {
           step2.push({
             purchaseLot: item.purchaseLot,
+            saleLot: item.saleLot,
             productionLot: transform['Production Lot']
           });
         }
       });
     });
+    console.log(`Step 2: ACOM Sale -> ACOM Transform: ${step2.length} matches`);
 
-    // Step 3: Join with Bridge
-    const step3: Array<{purchaseLot: string, destLot: string}> = [];
+    // Step 3: ACOM Nav Transform ["Production Lot"] -> ACOM Nav Bridge ["Lot No_(O)"]
+    const step3: Array<{purchaseLot: string, productionLot: string, bridgeDestLot: string}> = [];
     step2.forEach(item => {
       this.acomNavBridge.forEach(bridge => {
         if (bridge['Lot No_(O)'] === item.productionLot) {
           step3.push({
             purchaseLot: item.purchaseLot,
-            destLot: bridge['Lot No_(D)']
+            productionLot: item.productionLot,
+            bridgeDestLot: bridge['Lot No_(D)']
           });
         }
       });
     });
+    console.log(`Step 3: ACOM Transform -> ACOM Bridge: ${step3.length} matches`);
 
-    // Step 4: Join with Production Results to get Prod Order
+    // Step 4: ACOM Nav Bridge ["Lot No_(D)"] -> ACOM Production Results ["Lot No_"]
+    const step4: Array<{purchaseLot: string, bridgeDestLot: string, prodOrder: string}> = [];
     step3.forEach(item => {
       this.acomNavProduction.forEach(prod => {
-        if (prod['Lot No_'] === item.destLot) {
+        if (prod['Lot No_'] === item.bridgeDestLot) {
           const prodOrder = prod['Prod_ Order No_'];
-          
-          // Now find lots in Production Consumption with this prod order
-          const consumptionLots = this.records.filter(r => r['Prod_ Order No_'] === prodOrder);
-          
-          consumptionLots.forEach(lot => {
-            const lotNo = lot['Lot No_'];
-            if (!this.purchaseLotMap.has(item.purchaseLot)) {
-              this.purchaseLotMap.set(item.purchaseLot, []);
-            }
-            if (!this.purchaseLotMap.get(item.purchaseLot)!.includes(lotNo)) {
-              this.purchaseLotMap.get(item.purchaseLot)!.push(lotNo);
-            }
+          step4.push({
+            purchaseLot: item.purchaseLot,
+            bridgeDestLot: item.bridgeDestLot,
+            prodOrder: prodOrder
           });
         }
       });
     });
+    console.log(`Step 4: ACOM Bridge -> ACOM Production Results: ${step4.length} matches`);
+
+    // Step 5: ACOM Production Results ["Prod_ Order No_"] -> ACOM Production Consumption ["Prod_ Order No_"]
+    const step5: Array<{purchaseLot: string, prodOrder: string, consumptionLot: string}> = [];
+    step4.forEach(item => {
+      const consumptionLots = this.records.filter(r => r['Prod_ Order No_'] === item.prodOrder);
+      
+      consumptionLots.forEach(lot => {
+        const lotNo = lot['Lot No_'];
+        step5.push({
+          purchaseLot: item.purchaseLot,
+          prodOrder: item.prodOrder,
+          consumptionLot: lotNo
+        });
+        
+        if (!this.purchaseLotMap.has(item.purchaseLot)) {
+          this.purchaseLotMap.set(item.purchaseLot, []);
+        }
+        if (!this.purchaseLotMap.get(item.purchaseLot)!.includes(lotNo)) {
+          this.purchaseLotMap.get(item.purchaseLot)!.push(lotNo);
+        }
+      });
+    });
+    console.log(`Step 5: ACOM Production Results -> ACOM Consumption: ${step5.length} matches`);
     
     console.log('Purchase lot mapping built:', this.purchaseLotMap.size, 'purchase lots');
   }
@@ -552,6 +574,101 @@ export class CoffeeLotLineageTracker {
 
   getProductionLotsFromPurchase(purchaseLot: string): string[] {
     return this.purchaseLotMap.get(purchaseLot) || [];
+  }
+
+  getJoinStepsForPurchaseLot(purchaseLot: string): Array<{step: string, matches: any[]}> {
+    const steps: Array<{step: string, matches: any[]}> = [];
+    
+    // Step 1: EACL Navision -> ACOM Sale
+    const step1Matches: any[] = [];
+    this.eaclNavision.forEach(eacl => {
+      if (eacl['Lot Number'] === purchaseLot) {
+        const saleContract = eacl['Sale Contract #'];
+        this.acomSale.forEach(acom => {
+          if (acom['Sale Contract'] === saleContract) {
+            step1Matches.push({
+              purchaseLot: purchaseLot,
+              saleContract: saleContract,
+              saleLot: acom['Lot #']
+            });
+          }
+        });
+      }
+    });
+    steps.push({
+      step: '1. EACL Navision [Lot Number] → ACOM Sale [Sale Contract]',
+      matches: step1Matches
+    });
+
+    // Step 2: ACOM Sale -> ACOM Transform
+    const step2Matches: any[] = [];
+    step1Matches.forEach(item => {
+      this.acomNavTransform.forEach(transform => {
+        if (transform['Sale Lot'] === item.saleLot) {
+          step2Matches.push({
+            saleLot: item.saleLot,
+            productionLot: transform['Production Lot']
+          });
+        }
+      });
+    });
+    steps.push({
+      step: '2. ACOM Sale [Lot #] → ACOM Transform [Sale Lot]',
+      matches: step2Matches
+    });
+
+    // Step 3: ACOM Transform -> ACOM Bridge
+    const step3Matches: any[] = [];
+    step2Matches.forEach(item => {
+      this.acomNavBridge.forEach(bridge => {
+        if (bridge['Lot No_(O)'] === item.productionLot) {
+          step3Matches.push({
+            productionLot: item.productionLot,
+            bridgeDestLot: bridge['Lot No_(D)']
+          });
+        }
+      });
+    });
+    steps.push({
+      step: '3. ACOM Transform [Production Lot] → ACOM Bridge [Lot No_(O)]',
+      matches: step3Matches
+    });
+
+    // Step 4: ACOM Bridge -> ACOM Production Results
+    const step4Matches: any[] = [];
+    step3Matches.forEach(item => {
+      this.acomNavProduction.forEach(prod => {
+        if (prod['Lot No_'] === item.bridgeDestLot) {
+          step4Matches.push({
+            bridgeDestLot: item.bridgeDestLot,
+            prodOrder: prod['Prod_ Order No_']
+          });
+        }
+      });
+    });
+    steps.push({
+      step: '4. ACOM Bridge [Lot No_(D)] → ACOM Production Results [Lot No_]',
+      matches: step4Matches
+    });
+
+    // Step 5: ACOM Production Results -> ACOM Consumption
+    const step5Matches: any[] = [];
+    step4Matches.forEach(item => {
+      const consumptionLots = this.records.filter(r => r['Prod_ Order No_'] === item.prodOrder);
+      consumptionLots.forEach(lot => {
+        step5Matches.push({
+          prodOrder: item.prodOrder,
+          consumptionLot: lot['Lot No_'],
+          itemNo: lot['Item No_']
+        });
+      });
+    });
+    steps.push({
+      step: '5. ACOM Production Results [Prod_ Order No_] → ACOM Consumption [Prod_ Order No_]',
+      matches: step5Matches
+    });
+
+    return steps;
   }
 
   getPurchaseLotLineage(purchaseLot: string, maxDepth: number = 50): LineageResult {
