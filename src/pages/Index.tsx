@@ -115,47 +115,67 @@ const Index = () => {
         return;
       }
 
-      // Build comprehensive export data
+      // Build comprehensive export data - include ALL nodes in lineage tree
       const exportRows: any[] = [];
       
       step5.matches.forEach((match: any) => {
         const consumptionLot = match.consumptionLot;
-        const prodOrder = match.prodOrder;
-        const itemNo = match.itemNo || '';
         
-        // Get full details for this consumption lot from the tracker
+        // Get full lineage tree for this consumption lot
         if (tracker) {
-          const stats = tracker.getLotStatistics(consumptionLot);
           const lineage = tracker.getLotLineage(consumptionLot);
           
-          // Get sources (what this consumption lot consumed)
-          const sources = lineage.lineage_tree.sources || [];
-          const sourceLots = sources.map(s => s.lot_no).join('; ');
+          // Recursively collect all nodes from the lineage tree
+          const collectAllNodes = (node: any, parentLot: string = '', relationship: string = ''): void => {
+            const details = node.details || {};
+            
+            // Get sources for this node
+            const sources = node.sources || [];
+            const sourceLots = sources.map((s: any) => s.lot_no).join('; ');
+            
+            exportRows.push({
+              consumption_lot: consumptionLot,
+              lot_no: node.lot_no,
+              parent_lot: parentLot,
+              relationship: relationship || node.relationship || '',
+              process_types: (node.process_types || []).join('; '),
+              item_no: details.item_no || '',
+              description: details.description || '',
+              certified: details.certified || '',
+              unit_of_measure: details.unit_of_measure || '',
+              quantity: details.output_quantity || details.transfer?.transfer_quantity || details.purchase?.quantity || '',
+              date: details.output_date || details.transfer?.transfer_date || details.purchase?.date || '',
+              location_code: details.location_code || '',
+              counterparty: details.counterparty || '',
+              production_order: details.production_order || '',
+              source_lots: sourceLots,
+              is_origin: node.is_origin ? 'Yes' : 'No'
+            });
+            
+            // Recursively process source nodes
+            sources.forEach((source: any) => {
+              collectAllNodes(source, node.lot_no, source.relationship || 'source');
+            });
+            
+            // Process destination nodes if any
+            const destinations = node.destinations || [];
+            destinations.forEach((dest: any) => {
+              collectAllNodes(dest, node.lot_no, dest.relationship || 'destination');
+            });
+          };
           
-          // Extract all available details
-          const details = lineage.lineage_tree.details || {};
-          
-          exportRows.push({
-            consumption_lot: consumptionLot,
-            production_order: prodOrder,
-            item_no: itemNo,
-            description: details.description || '',
-            certified: details.certified || '',
-            unit_of_measure: details.unit_of_measure || '',
-            quantity: details.output_quantity || '',
-            date: details.output_date || '',
-            location_code: details.location_code || '',
-            counterparty: details.counterparty || '',
-            consumed_lots: sourceLots,
-            total_lots_traced: lineage.total_lots_traced || 0
-          });
+          // Start collecting from the root node
+          collectAllNodes(lineage.lineage_tree, '', 'Root');
         }
       });
 
       // Create CSV
       const headers = [
-        'Consumption Lot',
-        'Production Order',
+        'Consumption Lot (Step 5)',
+        'Lot No',
+        'Parent Lot',
+        'Relationship',
+        'Process Types',
         'Item No',
         'Description',
         'Certified',
@@ -164,14 +184,18 @@ const Index = () => {
         'Date',
         'Location Code',
         'Counterparty',
-        'Consumed Lots',
-        'Total Lots Traced'
+        'Production Order',
+        'Source Lots',
+        'Is Origin'
       ];
 
       const csvRows = exportRows.map(row => 
         [
           `"${row.consumption_lot}"`,
-          `"${row.production_order}"`,
+          `"${row.lot_no}"`,
+          `"${row.parent_lot}"`,
+          `"${row.relationship}"`,
+          `"${row.process_types}"`,
           `"${row.item_no}"`,
           `"${row.description}"`,
           `"${row.certified}"`,
@@ -180,8 +204,9 @@ const Index = () => {
           `"${row.date}"`,
           `"${row.location_code}"`,
           `"${row.counterparty}"`,
-          `"${row.consumed_lots}"`,
-          `${row.total_lots_traced}`
+          `"${row.production_order}"`,
+          `"${row.source_lots}"`,
+          `"${row.is_origin}"`
         ].join(',')
       );
 
@@ -190,10 +215,10 @@ const Index = () => {
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
-      link.download = `step5_consumption_lots_${lotNumber}.csv`;
+      link.download = `step5_full_lineage_${lotNumber}.csv`;
       link.click();
       
-      toast.success(`Exported ${exportRows.length} consumption lots from step 5`);
+      toast.success(`Exported ${exportRows.length} total lots from step 5 lineage trees`);
     } else {
       // Original export for non-purchase mode
       const result = lineageResults.length > 0 ? lineageResults[selectedResultIndex] : lineageResult;
