@@ -105,34 +105,126 @@ const Index = () => {
   };
 
   const handleExportLastStep = () => {
-    const result = lineageResults.length > 0 ? lineageResults[selectedResultIndex] : lineageResult;
-    
-    if (!result) {
-      toast.error("No data to export");
-      return;
+    // Check if we're in purchase mode with join steps data
+    if (joinSteps.length > 0 && joinSteps.length >= 6) {
+      // Export Step 5 data (index 5 = step 5)
+      const step5 = joinSteps[5];
+      
+      if (!step5.matches || step5.matches.length === 0) {
+        toast.error("No step 5 data to export");
+        return;
+      }
+
+      // Build comprehensive export data
+      const exportRows: any[] = [];
+      
+      step5.matches.forEach((match: any) => {
+        const consumptionLot = match.consumptionLot;
+        const prodOrder = match.prodOrder;
+        const itemNo = match.itemNo || '';
+        
+        // Get full details for this consumption lot from the tracker
+        if (tracker) {
+          const stats = tracker.getLotStatistics(consumptionLot);
+          const lineage = tracker.getLotLineage(consumptionLot);
+          
+          // Get sources (what this consumption lot consumed)
+          const sources = lineage.lineage_tree.sources || [];
+          const sourceLots = sources.map(s => s.lot_no).join('; ');
+          
+          // Extract all available details
+          const details = lineage.lineage_tree.details || {};
+          
+          exportRows.push({
+            consumption_lot: consumptionLot,
+            production_order: prodOrder,
+            item_no: itemNo,
+            description: details.description || '',
+            certified: details.certified || '',
+            unit_of_measure: details.unit_of_measure || '',
+            quantity: details.output_quantity || '',
+            date: details.output_date || '',
+            location_code: details.location_code || '',
+            counterparty: details.counterparty || '',
+            consumed_lots: sourceLots,
+            total_lots_traced: lineage.total_lots_traced || 0
+          });
+        }
+      });
+
+      // Create CSV
+      const headers = [
+        'Consumption Lot',
+        'Production Order',
+        'Item No',
+        'Description',
+        'Certified',
+        'Unit of Measure',
+        'Quantity',
+        'Date',
+        'Location Code',
+        'Counterparty',
+        'Consumed Lots',
+        'Total Lots Traced'
+      ];
+
+      const csvRows = exportRows.map(row => 
+        [
+          `"${row.consumption_lot}"`,
+          `"${row.production_order}"`,
+          `"${row.item_no}"`,
+          `"${row.description}"`,
+          `"${row.certified}"`,
+          `"${row.unit_of_measure}"`,
+          `"${row.quantity}"`,
+          `"${row.date}"`,
+          `"${row.location_code}"`,
+          `"${row.counterparty}"`,
+          `"${row.consumed_lots}"`,
+          `${row.total_lots_traced}`
+        ].join(',')
+      );
+
+      const csvContent = [headers.join(','), ...csvRows].join('\n');
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `step5_consumption_lots_${lotNumber}.csv`;
+      link.click();
+      
+      toast.success(`Exported ${exportRows.length} consumption lots from step 5`);
+    } else {
+      // Original export for non-purchase mode
+      const result = lineageResults.length > 0 ? lineageResults[selectedResultIndex] : lineageResult;
+      
+      if (!result) {
+        toast.error("No data to export");
+        return;
+      }
+
+      const exportData = {
+        consumption_lot: result.query_lot,
+        item_no: result.lineage_tree.details.item_no || 'N/A',
+        description: result.lineage_tree.details.description || 'N/A',
+        certified: result.lineage_tree.details.certified || 'N/A',
+        process_types: result.lineage_tree.process_types?.join(', ') || 'N/A',
+        total_lots_traced: result.total_lots_traced,
+      };
+
+      const csvContent = [
+        'Consumption Lot,Item No,Description,Certified,Process Types,Total Lots Traced',
+        `"${exportData.consumption_lot}","${exportData.item_no}","${exportData.description}","${exportData.certified}","${exportData.process_types}",${exportData.total_lots_traced}`
+      ].join('\n');
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `${result.query_lot}_export.csv`;
+      link.click();
+      
+      toast.success("Data exported successfully");
     }
-
-    const exportData = {
-      consumption_lot: result.query_lot,
-      item_no: result.lineage_tree.details.item_no || 'N/A',
-      description: result.lineage_tree.details.description || 'N/A',
-      certified: result.lineage_tree.details.certified || 'N/A',
-      process_types: result.lineage_tree.process_types?.join(', ') || 'N/A',
-      total_lots_traced: result.total_lots_traced,
-    };
-
-    const csvContent = [
-      'Consumption Lot,Item No,Description,Certified,Process Types,Total Lots Traced',
-      `"${exportData.consumption_lot}","${exportData.item_no}","${exportData.description}","${exportData.certified}","${exportData.process_types}",${exportData.total_lots_traced}`
-    ].join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `${result.query_lot}_export.csv`;
-    link.click();
-    
-    toast.success("Data exported successfully");
   };
 
   return (
