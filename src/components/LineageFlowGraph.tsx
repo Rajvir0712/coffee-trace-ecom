@@ -176,9 +176,20 @@ export const LineageFlowGraph = ({ data }: LineageFlowGraphProps) => {
         defaultEdgeOptions={{ animated: true, style: { strokeWidth: 3 } }}
       >
         <Background color="hsl(var(--muted-foreground))" gap={16} />
-        <Controls className="bg-card border border-border rounded-lg" />
+        <Controls 
+          className="!bg-card !border !border-border rounded-lg [&_button]:!bg-card [&_button]:!border-border [&_button]:hover:!bg-accent [&_button_svg]:!fill-foreground"
+          style={{
+            backgroundColor: 'hsl(var(--card))',
+            borderColor: 'hsl(var(--border))',
+          }}
+        />
         <MiniMap
-          className="bg-card border border-border rounded-lg"
+          className="!bg-card !border !border-border rounded-lg"
+          style={{
+            backgroundColor: 'hsl(var(--card))',
+            borderColor: 'hsl(var(--border))',
+          }}
+          maskColor="hsl(var(--accent) / 0.1)"
           pannable
           zoomable
           nodeColor={(node) => {
