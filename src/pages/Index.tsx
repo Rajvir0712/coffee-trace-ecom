@@ -14,7 +14,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { JoinStepsViewer } from "@/components/JoinStepsViewer";
 import { CoffeeLotLineageTracker, LineageResult, LotStatistics } from "@/lib/excelParser";
 import { toast } from "sonner";
-import { Coffee, TrendingUp, Package, Calendar, Loader2, Maximize2, Minimize2 } from "lucide-react";
+import { Coffee, TrendingUp, Package, Calendar, Loader2, Maximize2, Minimize2, Download } from "lucide-react";
 import logo from "@/assets/logo.png";
 
 const Index = () => {
@@ -102,6 +102,37 @@ const Index = () => {
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  const handleExportLastStep = () => {
+    const result = lineageResults.length > 0 ? lineageResults[selectedResultIndex] : lineageResult;
+    
+    if (!result) {
+      toast.error("No data to export");
+      return;
+    }
+
+    const exportData = {
+      consumption_lot: result.query_lot,
+      item_no: result.lineage_tree.details.item_no || 'N/A',
+      description: result.lineage_tree.details.description || 'N/A',
+      certified: result.lineage_tree.details.certified || 'N/A',
+      process_types: result.lineage_tree.process_types?.join(', ') || 'N/A',
+      total_lots_traced: result.total_lots_traced,
+    };
+
+    const csvContent = [
+      'Consumption Lot,Item No,Description,Certified,Process Types,Total Lots Traced',
+      `"${exportData.consumption_lot}","${exportData.item_no}","${exportData.description}","${exportData.certified}","${exportData.process_types}",${exportData.total_lots_traced}`
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `${result.query_lot}_export.csv`;
+    link.click();
+    
+    toast.success("Data exported successfully");
   };
 
   return (
@@ -240,18 +271,29 @@ const Index = () => {
                     </CardDescription>
                   </div>
                   {(lineageResult || lineageResults.length > 0) && (
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={() => setIsFullscreen(!isFullscreen)}
-                      className="shrink-0"
-                    >
-                      {isFullscreen ? (
-                        <Minimize2 className="h-4 w-4" />
-                      ) : (
-                        <Maximize2 className="h-4 w-4" />
-                      )}
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={handleExportLastStep}
+                        className="shrink-0"
+                        title="Export consumption lot data"
+                      >
+                        <Download className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() => setIsFullscreen(!isFullscreen)}
+                        className="shrink-0"
+                      >
+                        {isFullscreen ? (
+                          <Minimize2 className="h-4 w-4" />
+                        ) : (
+                          <Maximize2 className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
                   )}
                 </div>
               </CardHeader>
