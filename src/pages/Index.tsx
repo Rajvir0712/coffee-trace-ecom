@@ -252,6 +252,135 @@ const Index = () => {
     }
   };
 
+  const handleExportPurchaseOnly = () => {
+    // Check if we're in purchase mode with join steps data
+    if (joinSteps.length > 0 && joinSteps.length >= 6) {
+      // Export Step 5 data (index 5 = step 5)
+      const step5 = joinSteps[5];
+      
+      if (!step5.matches || step5.matches.length === 0) {
+        toast.error("No step 5 data to export");
+        return;
+      }
+
+      // Build comprehensive export data - include ALL nodes in lineage tree
+      const exportRows: any[] = [];
+      
+      step5.matches.forEach((match: any) => {
+        const consumptionLot = match.consumptionLot;
+        
+        // Get full lineage tree for this consumption lot
+        if (tracker) {
+          const lineage = tracker.getLotLineage(consumptionLot);
+          
+          // Recursively collect all nodes from the lineage tree
+          const collectAllNodes = (node: any, parentLot: string = '', relationship: string = ''): void => {
+            const details = node.details || {};
+            
+            // Get sources for this node
+            const sources = node.sources || [];
+            const sourceLots = sources.map((s: any) => s.lot_no).join('; ');
+            
+            // Only add if process_types contains 'Purchase'
+            const processTypes = (node.process_types || []).join('; ');
+            if (processTypes.includes('Purchase')) {
+              exportRows.push({
+                consumption_lot: consumptionLot,
+                lot_no: node.lot_no,
+                parent_lot: parentLot,
+                relationship: relationship || node.relationship || '',
+                process_types: processTypes,
+                item_no: details.item_no || '',
+                description: details.description || '',
+                certified: details.certified || '',
+                unit_of_measure: details.unit_of_measure || '',
+                quantity: details.output_quantity || details.transfer?.transfer_quantity || details.purchase?.quantity || '',
+                date: details.output_date || details.transfer?.transfer_date || details.purchase?.date || '',
+                location_code: details.location_code || '',
+                counterparty: details.counterparty || '',
+                production_order: details.production_order || '',
+                source_lots: sourceLots,
+                is_origin: node.is_origin ? 'Yes' : 'No'
+              });
+            }
+            
+            // Recursively process source nodes
+            sources.forEach((source: any) => {
+              collectAllNodes(source, node.lot_no, source.relationship || 'source');
+            });
+            
+            // Process destination nodes if any
+            const destinations = node.destinations || [];
+            destinations.forEach((dest: any) => {
+              collectAllNodes(dest, node.lot_no, dest.relationship || 'destination');
+            });
+          };
+          
+          // Start collecting from the root node
+          collectAllNodes(lineage.lineage_tree, '', 'Root');
+        }
+      });
+
+      if (exportRows.length === 0) {
+        toast.error("No purchase lots found in the lineage");
+        return;
+      }
+
+      // Create CSV
+      const headers = [
+        'Consumption Lot (Step 5)',
+        'Lot No',
+        'Parent Lot',
+        'Relationship',
+        'Process Types',
+        'Item No',
+        'Description',
+        'Certified',
+        'Unit of Measure',
+        'Quantity',
+        'Date',
+        'Location Code',
+        'Counterparty',
+        'Production Order',
+        'Source Lots',
+        'Is Origin'
+      ];
+
+      const csvRows = exportRows.map(row => 
+        [
+          `"${row.consumption_lot}"`,
+          `"${row.lot_no}"`,
+          `"${row.parent_lot}"`,
+          `"${row.relationship}"`,
+          `"${row.process_types}"`,
+          `"${row.item_no}"`,
+          `"${row.description}"`,
+          `"${row.certified}"`,
+          `"${row.unit_of_measure}"`,
+          `"${row.quantity}"`,
+          `"${row.date}"`,
+          `"${row.location_code}"`,
+          `"${row.counterparty}"`,
+          `"${row.production_order}"`,
+          `"${row.source_lots}"`,
+          `"${row.is_origin}"`
+        ].join(',')
+      );
+
+      const csvContent = [headers.join(','), ...csvRows].join('\n');
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `step5_purchase_only_${lotNumber}.csv`;
+      link.click();
+      
+      toast.success(`Exported ${exportRows.length} purchase lots from step 5 lineage trees`);
+    } else {
+      toast.error("Purchase-only export is only available in Sale Contract # Mode");
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-accent/5">
       {/* Header */}
@@ -391,13 +520,26 @@ const Index = () => {
                     <div className="flex gap-2">
                       <Button
                         variant="outline"
-                        size="icon"
+                        size="sm"
                         onClick={handleExportLastStep}
                         className="shrink-0"
-                        title="Export consumption lot data"
+                        title="Export all lots"
                       >
-                        <Download className="h-4 w-4" />
+                        <Download className="h-4 w-4 mr-2" />
+                        All Lots
                       </Button>
+                      {joinSteps.length > 0 && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleExportPurchaseOnly}
+                          className="shrink-0"
+                          title="Export purchase lots only"
+                        >
+                          <Download className="h-4 w-4 mr-2" />
+                          Purchase Only
+                        </Button>
+                      )}
                       <Button
                         variant="outline"
                         size="icon"
