@@ -13,19 +13,25 @@ import { LineageFlowGraph } from "@/components/LineageFlowGraph";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { JoinStepsViewer } from "@/components/JoinStepsViewer";
 import { CoffeeLotLineageTracker, LineageResult, LotStatistics } from "@/lib/excelParser";
+import { CocoaTracker, CocoaRecord } from "@/lib/cocoaParser";
+import { CocoaViewer } from "@/components/CocoaViewer";
 import { toast } from "sonner";
 import { Coffee, TrendingUp, Package, Calendar, Loader2, Maximize2, Minimize2, Download } from "lucide-react";
 import logo from "@/assets/logo.png";
 
 const Index = () => {
+  const [productMode, setProductMode] = useState<'coffee' | 'cocoa'>('coffee');
   const [file, setFile] = useState<File | null>(null);
   const [tracker, setTracker] = useState<CoffeeLotLineageTracker | null>(null);
+  const [cocoaTracker, setCocoaTracker] = useState<CocoaTracker | null>(null);
   const [lotNumber, setLotNumber] = useState("");
   const [availableLots, setAvailableLots] = useState<string[]>([]);
   const [availablePurchaseLots, setAvailablePurchaseLots] = useState<string[]>([]);
+  const [availableCocoaSalesContracts, setAvailableCocoaSalesContracts] = useState<string[]>([]);
   const [lineageResult, setLineageResult] = useState<LineageResult | null>(null);
   const [lineageResults, setLineageResults] = useState<LineageResult[]>([]);
   const [statistics, setStatistics] = useState<LotStatistics | null>(null);
+  const [cocoaRecords, setCocoaRecords] = useState<CocoaRecord[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -39,68 +45,103 @@ const Index = () => {
     setLineageResult(null);
     setLineageResults([]);
     setStatistics(null);
+    setCocoaRecords([]);
     setLotNumber("");
     setSelectedResultIndex(0);
 
     try {
-      const newTracker = new CoffeeLotLineageTracker();
-      await newTracker.loadExcelFile(selectedFile);
-      setTracker(newTracker);
-      
-      const lots = newTracker.getAllLotNumbers();
-      setAvailableLots(lots);
-      
-      const purchaseLots = newTracker.getAllPurchaseLots();
-      setAvailablePurchaseLots(purchaseLots);
-      
-      toast.success(`File loaded successfully! Found ${lots.length} production lots and ${purchaseLots.length} purchase lots.`);
+      if (productMode === 'coffee') {
+        const newTracker = new CoffeeLotLineageTracker();
+        await newTracker.loadExcelFile(selectedFile);
+        setTracker(newTracker);
+        setCocoaTracker(null);
+        
+        const lots = newTracker.getAllLotNumbers();
+        setAvailableLots(lots);
+        
+        const purchaseLots = newTracker.getAllPurchaseLots();
+        setAvailablePurchaseLots(purchaseLots);
+        
+        toast.success(`Coffee file loaded! Found ${lots.length} production lots and ${purchaseLots.length} purchase lots.`);
+      } else {
+        const newCocoaTracker = new CocoaTracker();
+        await newCocoaTracker.loadExcelFile(selectedFile);
+        setCocoaTracker(newCocoaTracker);
+        setTracker(null);
+        
+        const salesContracts = newCocoaTracker.getAllSalesContracts();
+        setAvailableCocoaSalesContracts(salesContracts);
+        
+        toast.success(`Cocoa file loaded! Found ${salesContracts.length} sales contracts.`);
+      }
     } catch (error) {
       toast.error(`Error loading file: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setFile(null);
       setTracker(null);
+      setCocoaTracker(null);
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleProcessLot = () => {
-    if (!tracker || !lotNumber.trim()) {
-      toast.error("Please load a file and enter a lot number");
-      return;
-    }
-
-    setIsProcessing(true);
-
-    try {
-      if (isPurchaseMode) {
-        const joinStepsData = tracker.getJoinStepsForPurchaseLot(lotNumber.trim());
-        setJoinSteps(joinStepsData);
-        
-        const results = tracker.getPurchaseLotLineage(lotNumber.trim());
-        setLineageResults(results);
-        setLineageResult(null);
-        setStatistics(null); // No direct stats for purchase lots
-        setSelectedResultIndex(0);
-        toast.success(`Found ${results.length} consumption lot(s) from purchase lot`);
-      } else {
-        setJoinSteps([]);
-        const result = tracker.getLotLineage(lotNumber.trim());
-        setLineageResult(result);
-        setLineageResults([]);
-
-        const stats = tracker.getLotStatistics(lotNumber.trim());
-        if ('error' in stats) {
-          toast.error(stats.error);
-          setStatistics(null);
-        } else {
-          setStatistics(stats);
-          toast.success(`Traced ${result.total_lots_traced} lots in the lineage`);
-        }
+    if (productMode === 'coffee') {
+      if (!tracker || !lotNumber.trim()) {
+        toast.error("Please load a file and enter a lot number");
+        return;
       }
-    } catch (error) {
-      toast.error(`Error processing lot: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    } finally {
-      setIsProcessing(false);
+
+      setIsProcessing(true);
+
+      try {
+        if (isPurchaseMode) {
+          const joinStepsData = tracker.getJoinStepsForPurchaseLot(lotNumber.trim());
+          setJoinSteps(joinStepsData);
+          
+          const results = tracker.getPurchaseLotLineage(lotNumber.trim());
+          setLineageResults(results);
+          setLineageResult(null);
+          setStatistics(null);
+          setSelectedResultIndex(0);
+          toast.success(`Found ${results.length} consumption lot(s) from purchase lot`);
+        } else {
+          setJoinSteps([]);
+          const result = tracker.getLotLineage(lotNumber.trim());
+          setLineageResult(result);
+          setLineageResults([]);
+
+          const stats = tracker.getLotStatistics(lotNumber.trim());
+          if ('error' in stats) {
+            toast.error(stats.error);
+            setStatistics(null);
+          } else {
+            setStatistics(stats);
+            toast.success(`Traced ${result.total_lots_traced} lots in the lineage`);
+          }
+        }
+      } catch (error) {
+        toast.error(`Error processing lot: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      } finally {
+        setIsProcessing(false);
+      }
+    } else {
+      // Cocoa mode
+      if (!cocoaTracker || !lotNumber.trim()) {
+        toast.error("Please load a cocoa file and enter a sale contract #");
+        return;
+      }
+
+      setIsProcessing(true);
+
+      try {
+        const records = cocoaTracker.getRecordsBySalesContract(lotNumber.trim());
+        setCocoaRecords(records);
+        toast.success(`Found ${records.length} record(s) for sale contract`);
+      } catch (error) {
+        toast.error(`Error processing sale contract: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      } finally {
+        setIsProcessing(false);
+      }
     }
   };
 
@@ -393,8 +434,44 @@ const Index = () => {
             <img src={logo} alt="ECOM Logo" className="h-16 w-auto object-contain mb-4" />
             <h1 className="text-3xl font-bold text-primary mb-2">ECOM Traceability Tracker</h1>
             <p className="text-sm text-muted-foreground max-w-2xl">
-              Trace the complete supply chain journey of coffee lots
+              {productMode === 'coffee' 
+                ? "Trace the complete supply chain journey of coffee lots"
+                : "View cocoa sales contract information and traceability data"
+              }
             </p>
+            
+            {/* Product Mode Toggle */}
+            <div className="mt-4 flex items-center gap-4 p-3 bg-accent/10 rounded-lg">
+              <Label htmlFor="product-mode" className="cursor-pointer font-semibold">
+                Product Mode:
+              </Label>
+              <div className="flex items-center gap-2">
+                <span className={productMode === 'coffee' ? "text-primary font-semibold" : "text-muted-foreground"}>
+                  Coffee
+                </span>
+                <Switch
+                  id="product-mode"
+                  checked={productMode === 'cocoa'}
+                  onCheckedChange={(checked) => {
+                    setProductMode(checked ? 'cocoa' : 'coffee');
+                    // Reset everything
+                    setFile(null);
+                    setTracker(null);
+                    setCocoaTracker(null);
+                    setLotNumber("");
+                    setLineageResult(null);
+                    setLineageResults([]);
+                    setStatistics(null);
+                    setCocoaRecords([]);
+                    setJoinSteps([]);
+                    setIsPurchaseMode(false);
+                  }}
+                />
+                <span className={productMode === 'cocoa' ? "text-primary font-semibold" : "text-muted-foreground"}>
+                  Cocoa
+                </span>
+              </div>
+            </div>
           </div>
         </div>
       </header>
@@ -408,7 +485,10 @@ const Index = () => {
               <CardHeader>
                 <CardTitle>Upload Excel File</CardTitle>
                 <CardDescription>
-                  Upload your ACOM Production Consumption Excel file
+                  {productMode === 'coffee'
+                    ? "Upload your ACOM Production Consumption Excel file"
+                    : "Upload your Cocoa Traceability Excel file"
+                  }
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -422,42 +502,58 @@ const Index = () => {
 
             <Card>
               <CardHeader>
-                <CardTitle>Trace Lot Lineage</CardTitle>
+                <CardTitle>{productMode === 'coffee' ? 'Trace Lot Lineage' : 'View Sale Contract'}</CardTitle>
                 <CardDescription>
-                  {isPurchaseMode 
-                    ? "Enter or select a sale contract # to trace forward through production"
-                    : "Enter or select a consumption lot to trace its history"
+                  {productMode === 'coffee'
+                    ? (isPurchaseMode 
+                      ? "Enter or select a sale contract # to trace forward through production"
+                      : "Enter or select a consumption lot to trace its history")
+                    : "Enter or select a sale contract # to view all records"
                   }
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="flex items-center justify-between p-3 bg-accent/10 rounded-lg">
-                  <Label htmlFor="purchase-mode" className="cursor-pointer">
-                    {isPurchaseMode ? "Sale Contract # Mode" : "Consumption Lot Mode"}
-                  </Label>
-                  <Switch
-                    id="purchase-mode"
-                    checked={isPurchaseMode}
-                    onCheckedChange={(checked) => {
-                      setIsPurchaseMode(checked);
-                      setLotNumber("");
-                      setLineageResult(null);
-                      setLineageResults([]);
-                      setStatistics(null);
-                      setSelectedResultIndex(0);
-                    }}
-                    disabled={!tracker}
-                  />
-                </div>
+                {productMode === 'coffee' && (
+                  <div className="flex items-center justify-between p-3 bg-accent/10 rounded-lg">
+                    <Label htmlFor="purchase-mode" className="cursor-pointer">
+                      {isPurchaseMode ? "Sale Contract # Mode" : "Consumption Lot Mode"}
+                    </Label>
+                    <Switch
+                      id="purchase-mode"
+                      checked={isPurchaseMode}
+                      onCheckedChange={(checked) => {
+                        setIsPurchaseMode(checked);
+                        setLotNumber("");
+                        setLineageResult(null);
+                        setLineageResults([]);
+                        setStatistics(null);
+                        setSelectedResultIndex(0);
+                      }}
+                      disabled={!tracker}
+                    />
+                  </div>
+                )}
                 <LotInput
                   lotNumber={lotNumber}
                   onLotNumberChange={setLotNumber}
-                  availableLots={isPurchaseMode ? availablePurchaseLots : availableLots}
-                  disabled={!tracker || isProcessing}
+                  availableLots={
+                    productMode === 'coffee' 
+                      ? (isPurchaseMode ? availablePurchaseLots : availableLots)
+                      : availableCocoaSalesContracts
+                  }
+                  disabled={
+                    (productMode === 'coffee' && !tracker) || 
+                    (productMode === 'cocoa' && !cocoaTracker) || 
+                    isProcessing
+                  }
                 />
                 <Button
                   onClick={handleProcessLot}
-                  disabled={!tracker || !lotNumber.trim() || isProcessing}
+                  disabled={
+                    (productMode === 'coffee' && (!tracker || !lotNumber.trim())) ||
+                    (productMode === 'cocoa' && (!cocoaTracker || !lotNumber.trim())) ||
+                    isProcessing
+                  }
                   className="w-full"
                   size="lg"
                 >
@@ -467,13 +563,13 @@ const Index = () => {
                       Processing...
                     </>
                   ) : (
-                    "Trace Lineage"
+                    productMode === 'coffee' ? "Trace Lineage" : "View Contract"
                   )}
                 </Button>
               </CardContent>
             </Card>
 
-            {statistics && !('error' in statistics) && (
+            {statistics && !('error' in statistics) && productMode === 'coffee' && (
               <Card>
                 <CardHeader>
                   <CardTitle>Lot Statistics</CardTitle>
@@ -507,6 +603,9 @@ const Index = () => {
 
           {/* Right Panel - Results */}
           <div className={isFullscreen ? "fixed inset-0 z-50 bg-background p-4 overflow-auto" : "lg:col-span-2"}>
+            {productMode === 'cocoa' && cocoaRecords.length > 0 ? (
+              <CocoaViewer records={cocoaRecords} saleContract={lotNumber} />
+            ) : (
             <Card className={isFullscreen ? "h-full rounded-lg border-2" : "min-h-[600px]"}>
               <CardHeader>
                 <div className="flex items-center justify-between">
@@ -734,6 +833,7 @@ const Index = () => {
                 )}
               </CardContent>
             </Card>
+            )}
           </div>
         </div>
       </main>
