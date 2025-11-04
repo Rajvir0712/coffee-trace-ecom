@@ -4,6 +4,7 @@ import { CocoaRecord } from "@/lib/cocoaParser";
 import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import * as XLSX from 'xlsx';
 
 interface CocoaViewerProps {
   records: CocoaRecord[];
@@ -17,48 +18,15 @@ export const CocoaViewer = ({ records, saleContract }: CocoaViewerProps) => {
       return;
     }
 
-    // Create CSV
-    const headers = [
-      'Company', 'PC', 'Lot Number', 'Lot Code', 'Client', 'Invoice', 
-      'Invoice Date', 'Destination', 'Shipment date', 'Sale Contract #',
-      'Customer ref', 'Purchase Contract', 'EAL Reference', 'Counterparty',
-      'Quantity', 'Unit', 'Lot #', 'Container Number', 'Certified', 'BL #'
-    ];
+    // Create Excel workbook
+    const worksheet = XLSX.utils.json_to_sheet(records);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Cocoa Records");
 
-    const csvRows = records.map(record => 
-      [
-        `"${record.Company || ''}"`,
-        `"${record.PC || ''}"`,
-        `"${record['Lot Number'] || ''}"`,
-        `"${record['Lot Code'] || ''}"`,
-        `"${record.Client || ''}"`,
-        `"${record.Invoice || ''}"`,
-        `"${record['Invoice Date'] || ''}"`,
-        `"${record.Destination || ''}"`,
-        `"${record['Shipment date'] || ''}"`,
-        `"${record['Sale Contract #'] || ''}"`,
-        `"${record['Customer ref'] || ''}"`,
-        `"${record['Purchase Contract'] || ''}"`,
-        `"${record['EAL Reference'] || ''}"`,
-        `"${record.Counterparty || ''}"`,
-        `"${record.Quantity || ''}"`,
-        `"${record.Unit || ''}"`,
-        `"${record['Lot #'] || ''}"`,
-        `"${record['Container Number'] || ''}"`,
-        `"${record.Certified || ''}"`,
-        `"${record['BL #'] || ''}"`
-      ].join(',')
-    );
-
-    const csvContent = [headers.join(','), ...csvRows].join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `cocoa_${saleContract}_export.csv`;
-    link.click();
+    // Generate Excel file
+    XLSX.writeFile(workbook, `cocoa_${saleContract}_export.xlsx`);
     
-    toast.success(`Exported ${records.length} records`);
+    toast.success(`Exported ${records.length} records to Excel`);
   };
 
   return (
@@ -73,7 +41,7 @@ export const CocoaViewer = ({ records, saleContract }: CocoaViewerProps) => {
           </div>
           <Button onClick={handleExport} variant="outline" size="sm">
             <Download className="h-4 w-4 mr-2" />
-            Export CSV
+            Export Excel
           </Button>
         </div>
       </CardHeader>
