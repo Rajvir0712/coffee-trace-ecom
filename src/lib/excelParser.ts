@@ -83,6 +83,7 @@ export class CoffeeLotLineageTracker {
   private acomNavTransform: any[] = [];
   private acomNavBridge: any[] = [];
   private acomNavProduction: any[] = [];
+  private acomNavisionPurchase: any[] = []; // Purchase data for VLOOKUP
   private purchaseLotMap: Map<string, string[]> = new Map(); // Maps purchase lot to production lots
 
   async loadExcelFile(file: File, sheetName: string = 'ACOM Production Consumption '): Promise<void> {
@@ -124,13 +125,15 @@ export class CoffeeLotLineageTracker {
     this.acomNavTransform = loadSheet('ACOM Nav Transform');
     this.acomNavBridge = loadSheet('ACOM Nav Bridge');
     this.acomNavProduction = loadSheet('ACOM Production Results ');
+    this.acomNavisionPurchase = loadSheet('ACOM Navision Purchase');
     
     console.log('Loaded sheets:', {
       eaclNavision: this.eaclNavision.length,
       acomSale: this.acomSale.length,
       acomNavTransform: this.acomNavTransform.length,
       acomNavBridge: this.acomNavBridge.length,
-      acomNavProduction: this.acomNavProduction.length
+      acomNavProduction: this.acomNavProduction.length,
+      acomNavisionPurchase: this.acomNavisionPurchase.length
     });
     
     // Debug: Log column names from each sheet
@@ -154,8 +157,63 @@ export class CoffeeLotLineageTracker {
       console.log('ACOM Production columns:', Object.keys(this.acomNavProduction[0]));
       console.log('ACOM Production sample:', this.acomNavProduction[0]);
     }
+    if (this.acomNavisionPurchase.length > 0) {
+      console.log('ACOM Navision Purchase columns:', Object.keys(this.acomNavisionPurchase[0]));
+      console.log('ACOM Navision Purchase sample:', this.acomNavisionPurchase[0]);
+    }
+    
+    // Perform VLOOKUP to merge purchase data into production/consumption records
+    this.performPurchaseVLOOKUP();
     
     this.buildPurchaseLotMapping();
+  }
+
+  private performPurchaseVLOOKUP(): void {
+    // VLOOKUP: Match "Prod_ Order No_" in Production/Consumption with "Contract" in Purchase
+    // Bring over: Lots, Item Number, Description, Quantity, Unit of Measure, Contract, 
+    // Season, Date of delivery, Location Code, Counterparty, Certified
+    
+    if (this.acomNavisionPurchase.length === 0) {
+      console.log('No ACOM Navision Purchase data available for VLOOKUP');
+      return;
+    }
+    
+    // Create a lookup map: Contract -> Purchase Record
+    const purchaseLookup = new Map<string, any>();
+    this.acomNavisionPurchase.forEach(purchase => {
+      const contract = String(purchase['Contract'] || '').trim();
+      if (contract) {
+        purchaseLookup.set(contract, purchase);
+      }
+    });
+    
+    console.log(`VLOOKUP: Created purchase lookup with ${purchaseLookup.size} contracts`);
+    
+    // Merge purchase data into production/consumption records
+    let matchCount = 0;
+    this.records.forEach(record => {
+      const prodOrder = String(record['Prod_ Order No_'] || '').trim();
+      if (prodOrder && purchaseLookup.has(prodOrder)) {
+        const purchaseData = purchaseLookup.get(prodOrder);
+        
+        // Merge purchase fields into the record
+        record['Purchase_Lots'] = purchaseData['Lots'];
+        record['Purchase_Item_Number'] = purchaseData['Item Number'];
+        record['Purchase_Description'] = purchaseData['Description'];
+        record['Purchase_Quantity'] = purchaseData['Quantity'];
+        record['Purchase_Unit_of_Measure'] = purchaseData['Unit of Measure'];
+        record['Purchase_Contract'] = purchaseData['Contract'];
+        record['Purchase_Season'] = purchaseData['Season'];
+        record['Purchase_Date_of_delivery'] = purchaseData['Date of delivery'];
+        record['Purchase_Location_Code'] = purchaseData['Location Code'];
+        record['Purchase_Counterparty'] = purchaseData['Counterparty'];
+        record['Purchase_Certified'] = purchaseData['Certified'];
+        
+        matchCount++;
+      }
+    });
+    
+    console.log(`VLOOKUP: Merged purchase data into ${matchCount} records`);
   }
 
   private buildPurchaseLotMapping(): void {
