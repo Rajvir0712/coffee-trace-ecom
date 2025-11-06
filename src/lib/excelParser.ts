@@ -482,8 +482,20 @@ export class CoffeeLotLineageTracker {
         };
 
         const first = lotData[0];
-        const locMatch = findAcross(lotData, [/^location\s*code$/i, /location\s*code/i, /location/i]);
-        const cpMatch = findAcross(lotData, [/counter\s*party/i, /counterparty/i, /vendor/i, /customer/i]);
+        
+        // Check for Location Code in both original and Purchase_ prefixed fields
+        let locMatch = findAcross(lotData, [/^location\s*code$/i, /location\s*code/i, /location/i]);
+        if (!locMatch.value || String(locMatch.value).trim() === '') {
+          // Try Purchase_ prefixed fields
+          locMatch = findAcross(lotData, [/^purchase_location\s*code$/i, /purchase_location/i]);
+        }
+        
+        // Check for Counterparty in both original and Purchase_ prefixed fields
+        let cpMatch = findAcross(lotData, [/counter\s*party/i, /counterparty/i, /vendor/i, /customer/i]);
+        if (!cpMatch.value || String(cpMatch.value).trim() === '') {
+          // Try Purchase_ prefixed fields
+          cpMatch = findAcross(lotData, [/^purchase_counter\s*party/i, /purchase_counterparty/i]);
+        }
 
         node.details = {
           item_no: first['Item No_'] || '',
