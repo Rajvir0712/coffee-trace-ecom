@@ -204,29 +204,10 @@ export class CoffeeLotLineageTracker {
     
     console.log(`VLOOKUP: Created purchase lookup with ${purchaseLookup.size} contracts`);
     
-    // Merge purchase data into production/consumption records and fix missing process types
+    // Merge purchase data into production/consumption records
     let matchCount = 0;
-    let fixedProcessTypes = 0;
     
     this.records.forEach(record => {
-      // Fix missing or empty process types
-      const currentProcessType = String(record['Process Type'] || '').trim();
-      
-      // If process type is empty, try to infer it
-      if (!currentProcessType) {
-        // Check if it has Location Code and Counterparty (indicates Purchase)
-        if (record['Location Code'] || record['Counterparty']) {
-          record['Process Type'] = 'Purchase';
-          fixedProcessTypes++;
-        }
-        // Check if it has Prod_ Order No_ (indicates Consumption or Output)
-        else if (record['Prod_ Order No_']) {
-          // Default to Consumption if we can't determine
-          record['Process Type'] = 'Consumption';
-          fixedProcessTypes++;
-        }
-      }
-      
       // Perform VLOOKUP merge
       const prodOrder = String(record['Prod_ Order No_'] || '').trim();
       if (prodOrder && purchaseLookup.has(prodOrder)) {
@@ -250,7 +231,6 @@ export class CoffeeLotLineageTracker {
     });
     
     console.log(`VLOOKUP: Merged purchase data into ${matchCount} records`);
-    console.log(`Fixed ${fixedProcessTypes} records with missing process types`);
   }
 
   private buildPurchaseLotMapping(): void {
@@ -418,41 +398,20 @@ export class CoffeeLotLineageTracker {
     });
   }
 
-  private inferProcessTypesForLot(lot: string): string[] {
+  private getProcessTypesForLot(lot: string): string[] {
     const lotData = this.lotRecords.get(lot) || [];
     if (lotData.length === 0) return ['Not Found'];
 
     const types = new Set<string>();
 
     for (const record of lotData) {
-      let t = String(record['Process Type'] || '').trim();
-
-      if (!t) {
-        if (record['Lot Dest']) {
-          t = 'Transfer';
-        } else if (record['Prod_ Order No_']) {
-          const prodOrder = record['Prod_ Order No_'];
-          const prodRecords = this.prodOrderRecords.get(prodOrder) || [];
-          const hasOutputForLot = prodRecords.some(
-            (r) => r['Process Type'] === 'Output' && r['Lot No_'] === lot
-          );
-          t = hasOutputForLot ? 'Output' : 'Consumption';
-        } else if (record['Location Code'] || record['Counterparty']) {
-          t = 'Purchase';
-        } else {
-          t = 'Unknown';
-        }
+      const t = String(record['Process Type'] || 'Unknown').trim();
+      if (t) {
+        types.add(t);
       }
-
-      types.add(t);
     }
 
-    const result = Array.from(types);
-    if (result.length > 1) {
-      const filtered = result.filter((x) => x !== 'Unknown');
-      return filtered.length ? filtered : ['Unknown'];
-    }
-    return result;
+    return types.size > 0 ? Array.from(types) : ['Unknown'];
   }
 
   getLotLineage(lotNo: string, maxDepth: number = 50): LineageResult {
@@ -463,7 +422,7 @@ export class CoffeeLotLineageTracker {
         return {
           lot_no: lot,
           warning: depth >= maxDepth ? 'Max depth reached or circular reference detected' : 'Already visited',
-          process_types: this.inferProcessTypesForLot(lot),
+          process_types: this.getProcessTypesForLot(lot),
           sources: [],
           details: {}
         };
@@ -494,7 +453,7 @@ export class CoffeeLotLineageTracker {
 
       const node: LineageNode = {
         lot_no: lot,
-        process_types: this.inferProcessTypesForLot(lot),
+        process_types: this.getProcessTypesForLot(lot),
         sources: [],
         destinations: [],
         details: {}
