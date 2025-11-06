@@ -403,6 +403,43 @@ export class CoffeeLotLineageTracker {
     });
   }
 
+  private inferProcessTypesForLot(lot: string): string[] {
+    const lotData = this.lotRecords.get(lot) || [];
+    if (lotData.length === 0) return ['Not Found'];
+
+    const types = new Set<string>();
+
+    for (const record of lotData) {
+      let t = String(record['Process Type'] || '').trim();
+
+      if (!t) {
+        if (record['Lot Dest']) {
+          t = 'Transfer';
+        } else if (record['Prod_ Order No_']) {
+          const prodOrder = record['Prod_ Order No_'];
+          const prodRecords = this.prodOrderRecords.get(prodOrder) || [];
+          const hasOutputForLot = prodRecords.some(
+            (r) => r['Process Type'] === 'Output' && r['Lot No_'] === lot
+          );
+          t = hasOutputForLot ? 'Output' : 'Consumption';
+        } else if (record['Location Code'] || record['Counterparty']) {
+          t = 'Purchase';
+        } else {
+          t = 'Unknown';
+        }
+      }
+
+      types.add(t);
+    }
+
+    const result = Array.from(types);
+    if (result.length > 1) {
+      const filtered = result.filter((x) => x !== 'Unknown');
+      return filtered.length ? filtered : ['Unknown'];
+    }
+    return result;
+  }
+
   getLotLineage(lotNo: string, maxDepth: number = 50): LineageResult {
     const visited = new Set<string>();
 
@@ -411,7 +448,7 @@ export class CoffeeLotLineageTracker {
         return {
           lot_no: lot,
           warning: depth >= maxDepth ? 'Max depth reached or circular reference detected' : 'Already visited',
-          process_types: ['Unknown'],
+          process_types: this.inferProcessTypesForLot(lot),
           sources: [],
           details: {}
         };
@@ -442,7 +479,7 @@ export class CoffeeLotLineageTracker {
 
       const node: LineageNode = {
         lot_no: lot,
-        process_types: Object.keys(processes),
+        process_types: this.inferProcessTypesForLot(lot),
         sources: [],
         destinations: [],
         details: {}
