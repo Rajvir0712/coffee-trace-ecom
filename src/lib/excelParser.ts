@@ -193,19 +193,28 @@ export class CoffeeLotLineageTracker {
   }
 
   private performPurchaseVLOOKUP(): void {
-    // VLOOKUP: Match "Prod_ Order No_" in Production/Consumption with "Contract" in Purchase
-    // Bring over: Lots, Item Number, Description, Quantity, Unit of Measure, Contract, 
-    // Season, Date of delivery, Location Code, Counterparty, Certified
+    // VLOOKUP formula in Excel: =VLOOKUP($A2,'ACOM Navision Purchase'!$A$2:$K$775,2,FALSE)
+    // Lookup: Column A (Prod_ Order No_) -> Column A in Purchase (Contract)
+    // Return: Columns 2-11 from Purchase sheet
+    // K2: col 2, L2: col 3 (Description), M2: col 4 (Quantity), N2: col 5 (Unit of Measure)
+    // O2: col 6 (Contract), P2: col 7 (Season), Q2: col 8 (Date of delivery)
+    // R2: col 9 (Location Code), S2: col 10 (Counterparty), T2: col 11 (Certified)
     
     if (this.acomNavisionPurchase.length === 0) {
       console.log('No ACOM Navision Purchase data available for VLOOKUP');
       return;
     }
     
-    // Create a lookup map: Contract -> Purchase Record
+    // Get column headers from the purchase sheet to understand the structure
+    const purchaseKeys = this.acomNavisionPurchase.length > 0 ? Object.keys(this.acomNavisionPurchase[0]) : [];
+    console.log('Purchase sheet columns:', purchaseKeys);
+    
+    // Create a lookup map: Contract (Column A) -> Purchase Record
+    // In the Purchase sheet, the first column should be 'Contract'
     const purchaseLookup = new Map<string, any>();
     this.acomNavisionPurchase.forEach(purchase => {
-      const contract = String(purchase['Contract'] || '').trim();
+      // Try both 'Contract' and the first key in case column name differs
+      const contract = String(purchase['Contract'] || purchase[purchaseKeys[0]] || '').trim();
       if (contract) {
         purchaseLookup.set(contract, purchase);
       }
@@ -224,31 +233,59 @@ export class CoffeeLotLineageTracker {
     
     // Merge purchase data into production/consumption records
     let matchCount = 0;
+    let noMatchCount = 0;
     
     this.records.forEach(record => {
-      // Perform VLOOKUP merge
+      // Perform VLOOKUP: Lookup Prod_ Order No_ in Purchase sheet's Contract column
       const prodOrder = String(record['Prod_ Order No_'] || '').trim();
-      if (prodOrder && purchaseLookup.has(prodOrder)) {
-        const purchaseData = purchaseLookup.get(prodOrder);
-        
-        // Merge purchase fields into the record
-        record['Purchase_Lots'] = purchaseData['Lots'];
-        record['Purchase_Item_Number'] = purchaseData['Item Number'];
-        record['Purchase_Description'] = purchaseData['Description'];
-        record['Purchase_Quantity'] = purchaseData['Quantity'];
-        record['Purchase_Unit_of_Measure'] = purchaseData['Unit of Measure'];
-        record['Purchase_Contract'] = purchaseData['Contract'];
-        record['Purchase_Season'] = purchaseData['Season'];
-        record['Purchase_Date_of_delivery'] = purchaseData['Date of delivery'];
-        record['Purchase_Location_Code'] = purchaseData['Location Code'];
-        record['Purchase_Counterparty'] = purchaseData['Counterparty'];
-        record['Purchase_Certified'] = purchaseData['Certified'];
-        
-        matchCount++;
+      
+      if (prodOrder) {
+        if (purchaseLookup.has(prodOrder)) {
+          const purchaseData = purchaseLookup.get(prodOrder);
+          
+          // Map the exact columns as per Excel VLOOKUP (indices 2-11)
+          // These correspond to columns B-K in the Purchase sheet
+          const purchaseColumns = Object.keys(purchaseData);
+          
+          // Column 2 (index 1 in array) - typically "Lots" or similar
+          record['VLOOKUP_Col2'] = purchaseData[purchaseColumns[1]];
+          
+          // Column 3 - Description
+          record['VLOOKUP_Description'] = purchaseData[purchaseColumns[2]] || purchaseData['Description'];
+          
+          // Column 4 - Quantity
+          record['VLOOKUP_Quantity'] = purchaseData[purchaseColumns[3]] || purchaseData['Quantity'];
+          
+          // Column 5 - Unit of Measure
+          record['VLOOKUP_Unit_of_Measure'] = purchaseData[purchaseColumns[4]] || purchaseData['Unit of Measure'];
+          
+          // Column 6 - Contract
+          record['VLOOKUP_Contract'] = purchaseData[purchaseColumns[5]] || purchaseData['Contract'];
+          
+          // Column 7 - Season
+          record['VLOOKUP_Season'] = purchaseData[purchaseColumns[6]] || purchaseData['Season'];
+          
+          // Column 8 - Date of delivery
+          record['VLOOKUP_Date_of_delivery'] = purchaseData[purchaseColumns[7]] || purchaseData['Date of delivery'];
+          
+          // Column 9 - Location Code
+          record['Location Code'] = purchaseData[purchaseColumns[8]] || purchaseData['Location Code'];
+          
+          // Column 10 - Counterparty
+          record['Counterparty'] = purchaseData[purchaseColumns[9]] || purchaseData['Counterparty'];
+          
+          // Column 11 - Certified
+          record['Certified'] = purchaseData[purchaseColumns[10]] || purchaseData['Certified'];
+          
+          matchCount++;
+        } else {
+          noMatchCount++;
+        }
       }
     });
     
-    console.log(`VLOOKUP: Merged purchase data into ${matchCount} records`);
+    console.log(`VLOOKUP Results: ${matchCount} matches, ${noMatchCount} no matches`);
+    console.log(`Match rate: ${((matchCount / (matchCount + noMatchCount)) * 100).toFixed(1)}%`);
   }
 
   private buildPurchaseLotMapping(): void {
