@@ -464,7 +464,8 @@ export class CoffeeLotLineageTracker {
         const findByPatterns = (rec: Record<string, any>, patterns: RegExp[]) => {
           const keys = Object.keys(rec);
           for (const key of keys) {
-            if (patterns.some((re) => re.test(key))) {
+            const normKey = key.replace(/[_\s]+/g, ' ').toLowerCase();
+            if (patterns.some((re) => re.test(normKey))) {
               return { key, value: rec[key] };
             }
           }
