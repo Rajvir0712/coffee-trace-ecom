@@ -105,6 +105,21 @@ export class CoffeeLotLineageTracker {
     if (jsonData.length > 0) {
       console.log('Available Excel columns:', Object.keys(jsonData[0]));
       console.log('Sample record:', jsonData[0]);
+      
+      // Log all unique Process Type values to understand what's in the data
+      const processTypes = new Set<string>();
+      jsonData.forEach(record => {
+        const pt = record['Process Type'];
+        processTypes.add(`"${pt}" (type: ${typeof pt})`);
+      });
+      console.log('All unique Process Type values found:', Array.from(processTypes));
+      
+      // Count records with empty/null process types
+      const emptyProcessTypes = jsonData.filter(r => !r['Process Type'] || String(r['Process Type']).trim() === '');
+      console.log(`Records with empty Process Type: ${emptyProcessTypes.length} out of ${jsonData.length}`);
+      if (emptyProcessTypes.length > 0) {
+        console.log('Sample empty Process Type records:', emptyProcessTypes.slice(0, 3));
+      }
     }
     
     this.preprocessData();
