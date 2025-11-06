@@ -194,7 +194,7 @@ export class CoffeeLotLineageTracker {
 
   private performPurchaseVLOOKUP(): void {
     // VLOOKUP formula in Excel: =VLOOKUP($A2,'ACOM Navision Purchase'!$A$2:$K$775,2,FALSE)
-    // Lookup: Column A (Prod_ Order No_) -> Column A in Purchase (Contract)
+    // Lookup: Column A (Lot No_) -> Column A in Purchase (Lots)
     // Return: Columns 2-11 from Purchase sheet
     // K2: col 2, L2: col 3 (Description), M2: col 4 (Quantity), N2: col 5 (Unit of Measure)
     // O2: col 6 (Contract), P2: col 7 (Season), Q2: col 8 (Date of delivery)
@@ -209,45 +209,44 @@ export class CoffeeLotLineageTracker {
     const purchaseKeys = this.acomNavisionPurchase.length > 0 ? Object.keys(this.acomNavisionPurchase[0]) : [];
     console.log('Purchase sheet columns:', purchaseKeys);
     
-    // Create a lookup map: Contract (Column A) -> Purchase Record
-    // In the Purchase sheet, the first column should be 'Contract'
+    // Create a lookup map: Lots (Column A) -> Purchase Record
     const purchaseLookup = new Map<string, any>();
     this.acomNavisionPurchase.forEach(purchase => {
-      // Try both 'Contract' and the first key in case column name differs
-      const contract = String(purchase['Contract'] || purchase[purchaseKeys[0]] || '').trim();
-      if (contract) {
-        purchaseLookup.set(contract, purchase);
+      // Use "Lots" column from Purchase sheet
+      const lots = String(purchase['Lots'] || '').trim();
+      if (lots) {
+        purchaseLookup.set(lots, purchase);
       }
     });
     
-    console.log(`VLOOKUP: Created purchase lookup with ${purchaseLookup.size} contracts`);
+    console.log(`VLOOKUP: Created purchase lookup with ${purchaseLookup.size} lots`);
     
-    // Debug: Log some Production Order values to compare
-    const prodOrders = new Set<string>();
+    // Debug: Log some Lot No_ values to compare
+    const lotNumbers = new Set<string>();
     this.records.forEach(r => {
-      const po = String(r['Prod_ Order No_'] || '').trim();
-      if (po) prodOrders.add(po);
+      const lotNo = String(r['Lot No_'] || '').trim();
+      if (lotNo) lotNumbers.add(lotNo);
     });
-    console.log(`Production/Consumption: Found ${prodOrders.size} unique Prod_ Order No_ values`);
-    console.log('Sample Prod_ Order No_ values:', Array.from(prodOrders).slice(0, 10));
+    console.log(`Production/Consumption: Found ${lotNumbers.size} unique Lot No_ values`);
+    console.log('Sample Lot No_ values:', Array.from(lotNumbers).slice(0, 10));
     
     // Merge purchase data into production/consumption records
     let matchCount = 0;
     let noMatchCount = 0;
     
     this.records.forEach(record => {
-      // Perform VLOOKUP: Lookup Prod_ Order No_ in Purchase sheet's Contract column
-      const prodOrder = String(record['Prod_ Order No_'] || '').trim();
+      // Perform VLOOKUP: Lookup Lot No_ in Purchase sheet's Lots column
+      const lotNo = String(record['Lot No_'] || '').trim();
       
-      if (prodOrder) {
-        if (purchaseLookup.has(prodOrder)) {
-          const purchaseData = purchaseLookup.get(prodOrder);
+      if (lotNo) {
+        if (purchaseLookup.has(lotNo)) {
+          const purchaseData = purchaseLookup.get(lotNo);
           
           // Map the exact columns as per Excel VLOOKUP (indices 2-11)
           // These correspond to columns B-K in the Purchase sheet
           const purchaseColumns = Object.keys(purchaseData);
           
-          // Column 2 (index 1 in array) - typically "Lots" or similar
+          // Column 2 (index 1 in array)
           record['VLOOKUP_Col2'] = purchaseData[purchaseColumns[1]];
           
           // Column 3 - Description
