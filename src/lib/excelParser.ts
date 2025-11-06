@@ -174,7 +174,16 @@ export class CoffeeLotLineageTracker {
     }
     if (this.acomNavisionPurchase.length > 0) {
       console.log('ACOM Navision Purchase columns:', Object.keys(this.acomNavisionPurchase[0]));
-      console.log('ACOM Navision Purchase sample:', this.acomNavisionPurchase[0]);
+      console.log('ACOM Navision Purchase sample (first 3):', this.acomNavisionPurchase.slice(0, 3));
+      
+      // Log all unique Contract values to debug VLOOKUP matching
+      const contractValues = new Set<string>();
+      this.acomNavisionPurchase.forEach(p => {
+        const contract = String(p['Contract'] || '').trim();
+        if (contract) contractValues.add(contract);
+      });
+      console.log(`ACOM Navision Purchase: Found ${contractValues.size} unique Contract values`);
+      console.log('Sample Contract values:', Array.from(contractValues).slice(0, 10));
     }
     
     // Perform VLOOKUP to merge purchase data into production/consumption records
@@ -203,6 +212,15 @@ export class CoffeeLotLineageTracker {
     });
     
     console.log(`VLOOKUP: Created purchase lookup with ${purchaseLookup.size} contracts`);
+    
+    // Debug: Log some Production Order values to compare
+    const prodOrders = new Set<string>();
+    this.records.forEach(r => {
+      const po = String(r['Prod_ Order No_'] || '').trim();
+      if (po) prodOrders.add(po);
+    });
+    console.log(`Production/Consumption: Found ${prodOrders.size} unique Prod_ Order No_ values`);
+    console.log('Sample Prod_ Order No_ values:', Array.from(prodOrders).slice(0, 10));
     
     // Merge purchase data into production/consumption records
     let matchCount = 0;
