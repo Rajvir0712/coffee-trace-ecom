@@ -15,6 +15,7 @@ import { JoinStepsViewer } from "@/components/JoinStepsViewer";
 import { CoffeeLotLineageTracker, LineageResult, LotStatistics } from "@/lib/excelParser";
 import { CocoaTracker, CocoaRecord } from "@/lib/cocoaParser";
 import { CocoaViewer } from "@/components/CocoaViewer";
+import { debugExcelVLOOKUP } from "@/lib/debugExcel";
 import { toast } from "sonner";
 import { Coffee, TrendingUp, Package, Calendar, Loader2, Maximize2, Minimize2, Download } from "lucide-react";
 import logo from "@/assets/logo.png";
@@ -51,6 +52,11 @@ const Index = () => {
 
     try {
       if (productMode === 'coffee') {
+        // Debug VLOOKUP matching
+        console.log('\n🔍 === VLOOKUP DEBUG ANALYSIS ===');
+        await debugExcelVLOOKUP(selectedFile);
+        console.log('=== END DEBUG ===\n');
+        
         const newTracker = new CoffeeLotLineageTracker();
         await newTracker.loadExcelFile(selectedFile);
         setTracker(newTracker);
