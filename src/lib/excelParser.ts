@@ -189,9 +189,30 @@ export class CoffeeLotLineageTracker {
     
     console.log(`VLOOKUP: Created purchase lookup with ${purchaseLookup.size} contracts`);
     
-    // Merge purchase data into production/consumption records
+    // Merge purchase data into production/consumption records and fix missing process types
     let matchCount = 0;
+    let fixedProcessTypes = 0;
+    
     this.records.forEach(record => {
+      // Fix missing or empty process types
+      const currentProcessType = String(record['Process Type'] || '').trim();
+      
+      // If process type is empty, try to infer it
+      if (!currentProcessType) {
+        // Check if it has Location Code and Counterparty (indicates Purchase)
+        if (record['Location Code'] || record['Counterparty']) {
+          record['Process Type'] = 'Purchase';
+          fixedProcessTypes++;
+        }
+        // Check if it has Prod_ Order No_ (indicates Consumption or Output)
+        else if (record['Prod_ Order No_']) {
+          // Default to Consumption if we can't determine
+          record['Process Type'] = 'Consumption';
+          fixedProcessTypes++;
+        }
+      }
+      
+      // Perform VLOOKUP merge
       const prodOrder = String(record['Prod_ Order No_'] || '').trim();
       if (prodOrder && purchaseLookup.has(prodOrder)) {
         const purchaseData = purchaseLookup.get(prodOrder);
@@ -214,6 +235,7 @@ export class CoffeeLotLineageTracker {
     });
     
     console.log(`VLOOKUP: Merged purchase data into ${matchCount} records`);
+    console.log(`Fixed ${fixedProcessTypes} records with missing process types`);
   }
 
   private buildPurchaseLotMapping(): void {
