@@ -13,8 +13,16 @@ class CoffeeLotLineageTracker:
         self.records = []
         self.production_purchase = []
         self.acom_navision_purchase = []
+        # Additional sheets for 5-step join
+        self.eacl_navision = []
+        self.acom_sale = []
+        self.acom_nav_transform = []
+        self.acom_nav_bridge = []
+        self.acom_production_results = []
+        # Indexes
         self.lot_index = {}
         self.prod_order_index = {}
+        self.purchase_lot_map = {}  # Maps sale contract # to consumption lots
         
     def load_excel_file(self, file_path: str, main_sheet: str = 'ACOM Production Consumption'):
         """Load Excel file and all relevant sheets"""
@@ -29,10 +37,15 @@ class CoffeeLotLineageTracker:
             self.records = df_main.to_dict('records')
             print(f"Loaded {len(self.records)} records from {main_sheet}")
         
-        # Load additional sheets
+        # Load all additional sheets (7 total)
         sheet_mappings = {
             'ACOM Navision Purchase': 'acom_navision_purchase',
-            'Production Purchase': 'production_purchase'
+            'Production Purchase': 'production_purchase',
+            'EACL Navision': 'eacl_navision',
+            'ACOM Navision Sale': 'acom_sale',
+            'ACOM Nav Transform': 'acom_nav_transform',
+            'ACOM Nav Bridge': 'acom_nav_bridge',
+            'ACOM Production Results ': 'acom_production_results'  # Note the space
         }
         
         for sheet_name, attr_name in sheet_mappings.items():
@@ -40,9 +53,14 @@ class CoffeeLotLineageTracker:
                 df = pd.read_excel(file_path, sheet_name=sheet_name)
                 setattr(self, attr_name, df.to_dict('records'))
                 print(f"Loaded {len(df)} records from {sheet_name}")
+            else:
+                print(f"WARNING: Sheet '{sheet_name}' not found")
         
         # Perform VLOOKUP
         self.perform_vlookup()
+        
+        # Build purchase lot mapping (5-step join)
+        self.build_purchase_lot_mapping()
         
         # Preprocess data for efficient lookups
         self.preprocess_data()
@@ -103,6 +121,141 @@ class CoffeeLotLineageTracker:
                 match_count += 1
         
         print(f"VLOOKUP completed: {match_count} matches found out of {len(self.records)} records")
+    
+    def build_purchase_lot_mapping(self):
+        """
+        Build mapping from Sale Contract # to consumption lots using 5-step join logic
+        Matches the TypeScript implementation in excelParser.ts
+        """
+        print("\n=== Building Purchase Lot Mapping (5-Step Join) ===")
+        
+        self.purchase_lot_map = {}
+        
+        def norm(v):
+            """Normalize values for comparison"""
+            return str(v if v is not None else '').strip().upper()
+        
+        # Step 1: EACL Navision [Lot Number] -> ACOM Navision Sale [Sale Contract]
+        step1 = []
+        for eacl in self.eacl_navision:
+            lot_number = eacl.get('Lot Number')
+            if lot_number is None or str(lot_number).strip() == '':
+                continue
+            lot_norm = norm(lot_number)
+            
+            for acom in self.acom_sale:
+                if norm(acom.get('Sale Contract', '')) == lot_norm:
+                    step1.append({
+                        'lotNumber': str(lot_number),
+                        'saleContract': acom.get('Sale Contract'),
+                        'saleLot': acom.get('Lot #'),
+                        'saleContractNumber': eacl.get('Sale Contract #')  # Keep original sale contract #
+                    })
+        
+        print(f"Step 1: EACL Navision [Lot Number] -> ACOM Sale: {len(step1)} matches")
+        
+        # Step 2: ACOM Navision Sale [Lot #] -> ACOM Nav Transform [Sale Lot]
+        step2 = []
+        for item in step1:
+            for transform in self.acom_nav_transform:
+                if norm(transform.get('Sale Lot', '')) == norm(item['saleLot']):
+                    step2.append({
+                        'lotNumber': item['lotNumber'],
+                        'saleLot': item['saleLot'],
+                        'productionLot': transform.get('Production Lot'),
+                        'saleContractNumber': item['saleContractNumber']
+                    })
+        
+        print(f"Step 2: ACOM Sale -> ACOM Transform: {len(step2)} matches")
+        
+        # Step 3: ACOM Nav Transform [Production Lot] -> ACOM Nav Bridge [Lot No_(O)]
+        step3 = []
+        for item in step2:
+            for bridge in self.acom_nav_bridge:
+                if norm(bridge.get('Lot No_(O)', '')) == norm(item['productionLot']):
+                    step3.append({
+                        'lotNumber': item['lotNumber'],
+                        'productionLot': item['productionLot'],
+                        'bridgeDestLot': bridge.get('Lot No_(D)'),
+                        'saleContractNumber': item['saleContractNumber']
+                    })
+        
+        print(f"Step 3: ACOM Transform -> ACOM Bridge: {len(step3)} matches")
+        
+        # Step 4: ACOM Nav Bridge [Lot No_(D)] -> ACOM Production Results [Lot No_]
+        step4 = []
+        for item in step3:
+            for prod in self.acom_production_results:
+                if norm(prod.get('Lot No_', '')) == norm(item['bridgeDestLot']):
+                    prod_order = prod.get('Prod_ Order No_')
+                    step4.append({
+                        'lotNumber': item['lotNumber'],
+                        'bridgeDestLot': item['bridgeDestLot'],
+                        'prodOrder': prod_order,
+                        'saleContractNumber': item['saleContractNumber']
+                    })
+        
+        print(f"Step 4: ACOM Bridge -> ACOM Production Results: {len(step4)} matches")
+        
+        # Step 5: ACOM Production Results [Prod_ Order No_] -> ACOM Production Consumption [Prod_ Order No_] (Consumption only)
+        step5 = []
+        for item in step4:
+            # Find consumption records with matching production order
+            consumption_lots = [
+                r for r in self.records 
+                if r.get('Prod_ Order No_') == item['prodOrder'] 
+                and r.get('Process Type') == 'Consumption'
+            ]
+            
+            for lot in consumption_lots:
+                consumption_lot_no = lot.get('Lot No_')
+                step5.append({
+                    'lotNumber': item['lotNumber'],
+                    'prodOrder': item['prodOrder'],
+                    'consumptionLot': consumption_lot_no,
+                    'saleContractNumber': item['saleContractNumber']
+                })
+                
+                # Map Sale Contract # to consumption lots
+                sale_contract = str(item['saleContractNumber'])
+                if sale_contract not in self.purchase_lot_map:
+                    self.purchase_lot_map[sale_contract] = []
+                if consumption_lot_no not in self.purchase_lot_map[sale_contract]:
+                    self.purchase_lot_map[sale_contract].append(consumption_lot_no)
+        
+        print(f"Step 5: ACOM Production Results -> ACOM Consumption: {len(step5)} matches")
+        print(f"Purchase lot mapping built: {len(self.purchase_lot_map)} sale contracts")
+        
+        # Return all steps for debugging
+        return {
+            'step1': step1,
+            'step2': step2,
+            'step3': step3,
+            'step4': step4,
+            'step5': step5
+        }
+    
+    def get_purchase_lot_lineage(self, sale_contract: str) -> List[Dict[str, Any]]:
+        """
+        Get lineage for all consumption lots linked to a purchase sale contract
+        Returns list of lineage results, one for each consumption lot
+        """
+        print(f"\n=== Getting Purchase Lot Lineage for Sale Contract: {sale_contract} ===")
+        
+        consumption_lots = self.purchase_lot_map.get(sale_contract, [])
+        
+        if not consumption_lots:
+            print(f"No consumption lots found for sale contract {sale_contract}")
+            return []
+        
+        print(f"Found {len(consumption_lots)} consumption lots for this sale contract")
+        
+        results = []
+        for lot in consumption_lots:
+            lineage = self.get_lot_lineage(lot)
+            results.append(lineage)
+        
+        return results
     
     def preprocess_data(self):
         """Build indexes for efficient lookups"""
@@ -282,17 +435,32 @@ if __name__ == "__main__":
     excel_file_path = "test-data.xlsx"  # Change this to your file path
     tracker.load_excel_file(excel_file_path)
     
-    # Example 1: Get lineage for a specific lot
+    print("\n" + "="*60)
+    print("USAGE EXAMPLES")
+    print("="*60)
+    
+    # Example 1: Get lineage for a specific production lot
+    print("\n--- Example 1: Production Lot Lineage ---")
     lot_to_trace = "LOT001"  # Change this to your lot number
     lineage_result = tracker.get_lot_lineage(lot_to_trace, max_depth=5)
     tracker.export_results("lineage_result.json", lineage_result)
+    print(f"Exported lineage for {lot_to_trace} to lineage_result.json")
     
     # Example 2: Get statistics for a lot
+    print("\n--- Example 2: Lot Statistics ---")
     stats = tracker.get_lot_statistics(lot_to_trace)
-    print(f"\nStatistics for {lot_to_trace}:")
+    print(f"Statistics for {lot_to_trace}:")
     print(json.dumps(stats, indent=2, default=str))
     
-    # Example 3: Perform inner join
+    # Example 3: Get purchase lot lineage (5-step join)
+    print("\n--- Example 3: Purchase Lot Lineage (Sale Contract #) ---")
+    sale_contract = "SC12345"  # Change this to your sale contract #
+    purchase_lineages = tracker.get_purchase_lot_lineage(sale_contract)
+    tracker.export_results("purchase_lineage_results.json", purchase_lineages)
+    print(f"Exported {len(purchase_lineages)} consumption lot lineages to purchase_lineage_results.json")
+    
+    # Example 4: Perform inner join
+    print("\n--- Example 4: Inner Join ---")
     joined_data = tracker.perform_inner_join(
         sheet1_key='main',
         sheet2_key='acom_navision_purchase',
@@ -301,7 +469,10 @@ if __name__ == "__main__":
     )
     tracker.export_results("joined_results.json", joined_data)
     
-    # Example 4: Get all lot numbers
+    # Example 5: Get all lot numbers and sale contracts
+    print("\n--- Example 5: Summary ---")
     all_lots = sorted(tracker.lot_index.keys())
-    print(f"\nTotal unique lots: {len(all_lots)}")
-    print(f"Sample lots: {all_lots[:10]}")
+    print(f"Total unique production lots: {len(all_lots)}")
+    print(f"Sample production lots: {all_lots[:10]}")
+    print(f"Total sale contracts: {len(tracker.purchase_lot_map)}")
+    print(f"Sample sale contracts: {list(tracker.purchase_lot_map.keys())[:10]}")
