@@ -21,14 +21,14 @@ print("=" * 80)
 print("\n[STEP 1] Loading data from Lakehouse tables...")
 start_time = time.time()
 
-# Load all tables (adjust table names to match your Lakehouse)
-df_production = spark.table("production_consumption")
-df_purchase = spark.table("navision_purchase")
-df_sale = spark.table("navision_sale")
-df_eacl = spark.table("eacl_navision")
-df_transform = spark.table("nav_transform")
-df_bridge = spark.table("nav_bridge")
-df_results = spark.table("production_results")
+# Load all tables from your Lakehouse
+df_production = spark.table("`ACOM Production Consumption`")
+df_purchase = spark.table("`ACOM Navision Purchase`")
+df_sale = spark.table("`ACOM Navision Sale`")
+df_eacl = spark.table("`EACL Navision`")
+df_transform = spark.table("`ACOM Nav Transform`")
+df_bridge = spark.table("`ACOM Nav Bridge`")
+df_results = spark.table("`ACOM Production Results`")
 
 load_time = time.time() - start_time
 print(f"✓ Loaded all tables in {load_time:.2f} seconds")
