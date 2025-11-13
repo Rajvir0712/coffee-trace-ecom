@@ -21,14 +21,75 @@ print("=" * 80)
 print("\n[STEP 1] Loading data from Lakehouse tables...")
 start_time = time.time()
 
+# First, let's check what databases and tables are available
+print("Available databases:")
+spark.sql("SHOW DATABASES").show()
+
+# Get the current database
+current_db = spark.sql("SELECT current_database()").collect()[0][0]
+print(f"\nCurrent database: {current_db}")
+
+# Show available tables
+print("\nAvailable tables in current database:")
+spark.sql("SHOW TABLES").show(truncate=False)
+
 # Load all tables from your Lakehouse
-df_production = spark.table("`ACOM Production Consumption`")
-df_purchase = spark.table("`ACOM Navision Purchase`")
-df_sale = spark.table("`ACOM Navision Sale`")
-df_eacl = spark.table("`EACL Navision`")
-df_transform = spark.table("`ACOM Nav Transform`")
-df_bridge = spark.table("`ACOM Nav Bridge`")
-df_results = spark.table("`ACOM Production Results`")
+# Try different formats to see which works
+try:
+    df_production = spark.table("ACOM_Production_Consumption")
+except:
+    try:
+        df_production = spark.table("acom_production_consumption")
+    except:
+        df_production = spark.sql("SELECT * FROM `ACOM Production Consumption`")
+
+try:
+    df_purchase = spark.table("ACOM_Navision_Purchase")
+except:
+    try:
+        df_purchase = spark.table("acom_navision_purchase")
+    except:
+        df_purchase = spark.sql("SELECT * FROM `ACOM Navision Purchase`")
+
+try:
+    df_sale = spark.table("ACOM_Navision_Sale")
+except:
+    try:
+        df_sale = spark.table("acom_navision_sale")
+    except:
+        df_sale = spark.sql("SELECT * FROM `ACOM Navision Sale`")
+
+try:
+    df_eacl = spark.table("EACL_Navision")
+except:
+    try:
+        df_eacl = spark.table("eacl_navision")
+    except:
+        df_eacl = spark.sql("SELECT * FROM `EACL Navision`")
+
+try:
+    df_transform = spark.table("ACOM_Nav_Transform")
+except:
+    try:
+        df_transform = spark.table("acom_nav_transform")
+    except:
+        df_transform = spark.sql("SELECT * FROM `ACOM Nav Transform`")
+
+try:
+    df_bridge = spark.table("ACOM_Nav_Bridge")
+except:
+    try:
+        df_bridge = spark.table("acom_nav_bridge")
+    except:
+        df_bridge = spark.sql("SELECT * FROM `ACOM Nav Bridge`")
+
+try:
+    df_results = spark.table("ACOM_Production_Results")
+except:
+    try:
+        df_results = spark.table("acom_production_results")
+    except:
+        df_results = spark.sql("SELECT * FROM `ACOM Production Results`")
 
 load_time = time.time() - start_time
 print(f"✓ Loaded all tables in {load_time:.2f} seconds")
