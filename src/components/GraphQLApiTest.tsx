@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
-import { Loader2, Database, RefreshCw, CheckCircle, XCircle } from "lucide-react";
+import { Loader2, Database, RefreshCw, CheckCircle, XCircle, Plus, Trash2 } from "lucide-react";
 
 interface DataSource {
   name: string;
@@ -18,39 +18,50 @@ interface DataSource {
 
 export const GraphQLApiTest = () => {
   const [endpoint, setEndpoint] = useState("");
-  const [bearerToken, setBearerToken] = useState("");
+  const [tenantId, setTenantId] = useState("");
+  const [applicationId, setApplicationId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  const [accessToken, setAccessToken] = useState("");
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [dataSources, setDataSources] = useState<DataSource[]>([]);
   const [activeDataSource, setActiveDataSource] = useState<string>("");
+  const [newDataSourceName, setNewDataSourceName] = useState("");
 
-  // Introspection query to get all types
-  const introspectionQuery = `
-    query IntrospectionQuery {
-      __schema {
-        queryType {
-          fields {
-            name
-            type {
-              name
-              kind
-              ofType {
-                name
-                kind
-              }
-            }
-          }
-        }
-      }
+  // Get access token using Service Principal
+  const getAccessToken = async (): Promise<string> => {
+    const tokenEndpoint = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
+    
+    const params = new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: applicationId,
+      client_secret: clientSecret,
+      scope: "https://analysis.windows.net/powerbi/api/.default",
+    });
+
+    const response = await fetch(tokenEndpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: params.toString(),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Token request failed: ${errorText}`);
     }
-  `;
 
-  const executeGraphQLQuery = async (query: string) => {
+    const data = await response.json();
+    return data.access_token;
+  };
+
+  const executeGraphQLQuery = async (query: string, token: string) => {
     const response = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${bearerToken}`,
+        "Authorization": `Bearer ${token}`,
       },
       body: JSON.stringify({ query }),
     });
@@ -67,52 +78,27 @@ export const GraphQLApiTest = () => {
       toast.error("Please enter a GraphQL endpoint URL");
       return;
     }
-    if (!bearerToken.trim()) {
-      toast.error("Please enter a Bearer token");
+    if (!tenantId.trim()) {
+      toast.error("Please enter a Tenant ID");
+      return;
+    }
+    if (!applicationId.trim()) {
+      toast.error("Please enter an Application ID");
+      return;
+    }
+    if (!clientSecret.trim()) {
+      toast.error("Please enter a Client Secret");
       return;
     }
 
     setIsConnecting(true);
-    setDataSources([]);
 
     try {
-      // First, run introspection to discover available queries
-      const introspectionResult = await executeGraphQLQuery(introspectionQuery);
-      
-      if (introspectionResult.errors) {
-        throw new Error(introspectionResult.errors[0]?.message || "Introspection failed");
-      }
-
-      const queryFields = introspectionResult.data?.__schema?.queryType?.fields || [];
-      
-      // Filter for likely data source queries (typically return lists)
-      const dataSourceQueries = queryFields.filter((field: any) => {
-        const typeName = field.type?.name || field.type?.ofType?.name || "";
-        const kind = field.type?.kind || field.type?.ofType?.kind || "";
-        // Look for list types or connection types
-        return kind === "LIST" || typeName.includes("Connection") || !field.name.startsWith("__");
-      });
-
-      if (dataSourceQueries.length === 0) {
-        toast.warning("No data source queries found in the API");
-        setIsConnected(true);
-        setIsConnecting(false);
-        return;
-      }
-
-      // Initialize data sources from discovered queries
-      const sources: DataSource[] = dataSourceQueries.map((field: any) => ({
-        name: field.name,
-        data: [],
-        loading: false,
-        error: null,
-      }));
-
-      setDataSources(sources);
+      // Get access token using Service Principal
+      const token = await getAccessToken();
+      setAccessToken(token);
       setIsConnected(true);
-      setActiveDataSource(sources[0]?.name || "");
-      toast.success(`Connected! Found ${sources.length} data source(s)`);
-
+      toast.success("Connected successfully! Add data source names to query.");
     } catch (error) {
       toast.error(`Connection failed: ${error instanceof Error ? error.message : "Unknown error"}`);
       setIsConnected(false);
@@ -121,7 +107,44 @@ export const GraphQLApiTest = () => {
     }
   };
 
+  const handleAddDataSource = () => {
+    if (!newDataSourceName.trim()) {
+      toast.error("Please enter a data source name");
+      return;
+    }
+
+    if (dataSources.some(ds => ds.name === newDataSourceName.trim())) {
+      toast.error("Data source already exists");
+      return;
+    }
+
+    const newSource: DataSource = {
+      name: newDataSourceName.trim(),
+      data: [],
+      loading: false,
+      error: null,
+    };
+
+    setDataSources(prev => [...prev, newSource]);
+    setActiveDataSource(newDataSourceName.trim());
+    setNewDataSourceName("");
+    toast.success(`Added data source: ${newDataSourceName}`);
+  };
+
+  const handleRemoveDataSource = (name: string) => {
+    setDataSources(prev => prev.filter(ds => ds.name !== name));
+    if (activeDataSource === name) {
+      setActiveDataSource(dataSources[0]?.name || "");
+    }
+    toast.success(`Removed data source: ${name}`);
+  };
+
   const fetchDataSource = async (sourceName: string) => {
+    if (!accessToken) {
+      toast.error("Not connected. Please connect first.");
+      return;
+    }
+
     setDataSources(prev => prev.map(ds => 
       ds.name === sourceName ? { ...ds, loading: true, error: null } : ds
     ));
@@ -141,56 +164,16 @@ export const GraphQLApiTest = () => {
       `;
 
       // First try with pagination
-      let result = await executeGraphQLQuery(query);
+      let result = await executeGraphQLQuery(query, accessToken);
       
       // If that doesn't work, try without pagination
       if (result.errors) {
         const simpleQuery = `
           query {
-            ${sourceName} {
-              __typename
-            }
+            ${sourceName}
           }
         `;
-        
-        // Get the structure first
-        const structureResult = await executeGraphQLQuery(`
-          query {
-            __type(name: "${sourceName.charAt(0).toUpperCase() + sourceName.slice(1)}") {
-              fields {
-                name
-                type {
-                  name
-                  kind
-                }
-              }
-            }
-          }
-        `);
-
-        // Try to build a proper query based on the structure
-        const fields = structureResult.data?.__type?.fields?.map((f: any) => f.name).join("\n") || "";
-        
-        if (fields) {
-          const detailedQuery = `
-            query {
-              ${sourceName} {
-                ${fields}
-              }
-            }
-          `;
-          result = await executeGraphQLQuery(detailedQuery);
-        } else {
-          // Fallback: try common field patterns
-          const fallbackQuery = `
-            query {
-              ${sourceName} {
-                id
-              }
-            }
-          `;
-          result = await executeGraphQLQuery(fallbackQuery);
-        }
+        result = await executeGraphQLQuery(simpleQuery, accessToken);
       }
 
       if (result.errors) {
@@ -254,32 +237,53 @@ export const GraphQLApiTest = () => {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Database className="h-5 w-5" />
-            GraphQL API Connection
+            GraphQL API Connection (Service Principal)
           </CardTitle>
           <CardDescription>
-            Enter your GraphQL endpoint and Bearer token to test the connection
+            Enter your GraphQL endpoint and Service Principal credentials to connect
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="endpoint">GraphQL Endpoint URL</Label>
+            <Input
+              id="endpoint"
+              placeholder="https://api.example.com/graphql"
+              value={endpoint}
+              onChange={(e) => setEndpoint(e.target.value)}
+              disabled={isConnecting}
+            />
+          </div>
+          
+          <div className="grid gap-4 md:grid-cols-3">
             <div className="space-y-2">
-              <Label htmlFor="endpoint">GraphQL Endpoint URL</Label>
+              <Label htmlFor="tenantId">Tenant ID</Label>
               <Input
-                id="endpoint"
-                placeholder="https://api.example.com/graphql"
-                value={endpoint}
-                onChange={(e) => setEndpoint(e.target.value)}
+                id="tenantId"
+                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                value={tenantId}
+                onChange={(e) => setTenantId(e.target.value)}
                 disabled={isConnecting}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="token">Bearer Token</Label>
+              <Label htmlFor="applicationId">Application ID (Client ID)</Label>
               <Input
-                id="token"
+                id="applicationId"
+                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                value={applicationId}
+                onChange={(e) => setApplicationId(e.target.value)}
+                disabled={isConnecting}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="clientSecret">Client Secret</Label>
+              <Input
+                id="clientSecret"
                 type="password"
-                placeholder="Enter your Bearer token"
-                value={bearerToken}
-                onChange={(e) => setBearerToken(e.target.value)}
+                placeholder="Enter your Client Secret"
+                value={clientSecret}
+                onChange={(e) => setClientSecret(e.target.value)}
                 disabled={isConnecting}
               />
             </div>
@@ -293,7 +297,7 @@ export const GraphQLApiTest = () => {
                   Connecting...
                 </>
               ) : (
-                "Connect & Discover Data Sources"
+                "Connect"
               )}
             </Button>
             
@@ -306,6 +310,32 @@ export const GraphQLApiTest = () => {
           </div>
         </CardContent>
       </Card>
+
+      {/* Add Data Source */}
+      {isConnected && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Add Data Sources</CardTitle>
+            <CardDescription>
+              Manually enter the names of data sources (query names) to fetch
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex gap-2">
+              <Input
+                placeholder="Enter data source name (e.g., users, products)"
+                value={newDataSourceName}
+                onChange={(e) => setNewDataSourceName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleAddDataSource()}
+              />
+              <Button onClick={handleAddDataSource}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Data Sources */}
       {dataSources.length > 0 && (
@@ -353,6 +383,16 @@ export const GraphQLApiTest = () => {
                             {ds.data.length > 0 ? "Refresh Data" : "Fetch First 1000 Rows"}
                           </>
                         )}
+                      </Button>
+
+                      <Button
+                        onClick={() => handleRemoveDataSource(ds.name)}
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive hover:text-destructive"
+                      >
+                        <Trash2 className="h-4 w-4 mr-1" />
+                        Remove
                       </Button>
                       
                       {ds.error && (
@@ -406,7 +446,7 @@ export const GraphQLApiTest = () => {
       {isConnected && dataSources.length === 0 && (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
-            No data sources discovered. The API may not expose queryable types.
+            Add data source names above to start querying the API
           </CardContent>
         </Card>
       )}
