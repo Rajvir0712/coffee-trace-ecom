@@ -5,6 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Input } from "@/components/ui/input";
 import { FileUpload } from "@/components/FileUpload";
 import { LotInput } from "@/components/LotInput";
 import { JsonViewer } from "@/components/JsonViewer";
@@ -16,8 +17,9 @@ import { CoffeeLotLineageTracker, LineageResult, LotStatistics } from "@/lib/exc
 import { CocoaTracker, CocoaRecord } from "@/lib/cocoaParser";
 import { CocoaViewer } from "@/components/CocoaViewer";
 import { analyzeVLOOKUPStructure } from "@/lib/analyzeVLOOKUP";
+import { triggerLineageTrace, checkJobStatus, mapJobStatus, JobStatus } from "@/lib/fabricApi";
 import { toast } from "sonner";
-import { Coffee, TrendingUp, Package, Calendar, Loader2, Maximize2, Minimize2, Download } from "lucide-react";
+import { Coffee, TrendingUp, Package, Calendar, Loader2, Maximize2, Minimize2, Download, Cloud, FileSpreadsheet } from "lucide-react";
 import logo from "@/assets/logo.png";
 
 const Index = () => {
@@ -39,6 +41,14 @@ const Index = () => {
   const [isPurchaseMode, setIsPurchaseMode] = useState(false);
   const [joinSteps, setJoinSteps] = useState<Array<{step: string, matches: any[]}>>([]);
   const [selectedResultIndex, setSelectedResultIndex] = useState(0);
+  
+  // Fabric Lakehouse mode
+  const [dataSource, setDataSource] = useState<'excel' | 'fabric'>('excel');
+  const [fabricSalesContract, setFabricSalesContract] = useState("");
+  const [fabricJobId, setFabricJobId] = useState<string | null>(null);
+  const [fabricJobStatus, setFabricJobStatus] = useState<JobStatus | null>(null);
+  const [fabricStatusMessage, setFabricStatusMessage] = useState("");
+  const [isFabricTriggering, setIsFabricTriggering] = useState(false);
 
   const handleFileSelect = async (selectedFile: File) => {
     setFile(selectedFile);
@@ -147,6 +157,90 @@ const Index = () => {
         setIsProcessing(false);
       }
     }
+  };
+
+  // Fabric Lakehouse trigger handler
+  const handleFabricTrigger = async () => {
+    if (!fabricSalesContract.trim()) {
+      toast.error("Please enter a sales contract number");
+      return;
+    }
+
+    setIsFabricTriggering(true);
+    setFabricJobId(null);
+    setFabricJobStatus(null);
+    setFabricStatusMessage("Triggering notebook...");
+
+    try {
+      const result = await triggerLineageTrace(fabricSalesContract.trim());
+      
+      if (result.job_id) {
+        setFabricJobId(result.job_id);
+        setFabricJobStatus('InProgress');
+        setFabricStatusMessage(`Job started: ${result.job_id}`);
+        toast.success("Fabric notebook triggered successfully!");
+        
+        // Start polling for job status
+        pollFabricJobStatus(result.job_id);
+      } else {
+        throw new Error("No job ID returned");
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to trigger notebook';
+      toast.error(errorMessage);
+      setFabricJobStatus('Failed');
+      setFabricStatusMessage(errorMessage);
+    } finally {
+      setIsFabricTriggering(false);
+    }
+  };
+
+  const pollFabricJobStatus = async (jobId: string) => {
+    const pollInterval = 5000; // 5 seconds
+    const maxAttempts = 120; // 10 minutes max
+    let attempts = 0;
+
+    const poll = async () => {
+      if (attempts >= maxAttempts) {
+        setFabricJobStatus('Failed');
+        setFabricStatusMessage('Polling timeout: Job did not complete in time');
+        return;
+      }
+
+      try {
+        const status = await checkJobStatus(jobId);
+        const mappedStatus = mapJobStatus(status.status);
+        setFabricJobStatus(mappedStatus);
+        setFabricStatusMessage(`Status: ${status.status}`);
+
+        if (mappedStatus === 'Succeeded') {
+          toast.success("Fabric notebook completed successfully!");
+          return;
+        }
+
+        if (mappedStatus === 'Failed') {
+          toast.error(status.failure_reason || "Notebook job failed");
+          return;
+        }
+
+        if (mappedStatus === 'Cancelled') {
+          toast.error("Notebook job was cancelled");
+          return;
+        }
+
+        // Continue polling
+        attempts++;
+        setTimeout(poll, pollInterval);
+      } catch (error) {
+        console.error('Error polling job status:', error);
+        // Continue polling even on error
+        attempts++;
+        setTimeout(poll, pollInterval);
+      }
+    };
+
+    // Start polling after a short delay
+    setTimeout(poll, pollInterval);
   };
 
   const handleExportLastStep = () => {
@@ -485,93 +579,207 @@ const Index = () => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left Panel - Controls */}
           <div className="lg:col-span-1 space-y-6">
+            {/* Data Source Toggle */}
             <Card>
-              <CardHeader>
-                <CardTitle>Upload Excel File</CardTitle>
-                <CardDescription>
-                  {productMode === 'coffee'
-                    ? "Upload your ACOM Production Consumption Excel file"
-                    : "Upload your Cocoa Traceability Excel file"
-                  }
-                </CardDescription>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg">Data Source</CardTitle>
               </CardHeader>
               <CardContent>
-                <FileUpload
-                  onFileSelect={handleFileSelect}
-                  selectedFile={file}
-                  isLoading={isLoading}
-                />
+                <div className="flex items-center justify-center gap-4 p-3 bg-accent/10 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <FileSpreadsheet className={`w-4 h-4 ${dataSource === 'excel' ? 'text-primary' : 'text-muted-foreground'}`} />
+                    <span className={dataSource === 'excel' ? "text-primary font-semibold" : "text-muted-foreground"}>
+                      Excel
+                    </span>
+                  </div>
+                  <Switch
+                    checked={dataSource === 'fabric'}
+                    onCheckedChange={(checked) => {
+                      setDataSource(checked ? 'fabric' : 'excel');
+                      // Reset fabric state when switching
+                      if (!checked) {
+                        setFabricSalesContract("");
+                        setFabricJobId(null);
+                        setFabricJobStatus(null);
+                        setFabricStatusMessage("");
+                      }
+                    }}
+                  />
+                  <div className="flex items-center gap-2">
+                    <Cloud className={`w-4 h-4 ${dataSource === 'fabric' ? 'text-primary' : 'text-muted-foreground'}`} />
+                    <span className={dataSource === 'fabric' ? "text-primary font-semibold" : "text-muted-foreground"}>
+                      Fabric
+                    </span>
+                  </div>
+                </div>
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>{productMode === 'coffee' ? 'Trace Lot Lineage' : 'View Sale Contract'}</CardTitle>
-                <CardDescription>
-                  {productMode === 'coffee'
-                    ? (isPurchaseMode 
-                      ? "Enter or select a sale contract # to trace forward through production"
-                      : "Enter or select a consumption lot to trace its history")
-                    : "Enter or select a sale contract # to view all records"
-                  }
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {productMode === 'coffee' && (
-                  <div className="flex items-center justify-between p-3 bg-accent/10 rounded-lg">
-                    <Label htmlFor="purchase-mode" className="cursor-pointer">
-                      {isPurchaseMode ? "Sale Contract # Mode" : "Consumption Lot Mode"}
-                    </Label>
-                    <Switch
-                      id="purchase-mode"
-                      checked={isPurchaseMode}
-                      onCheckedChange={(checked) => {
-                        setIsPurchaseMode(checked);
-                        setLotNumber("");
-                        setLineageResult(null);
-                        setLineageResults([]);
-                        setStatistics(null);
-                        setSelectedResultIndex(0);
-                      }}
-                      disabled={!tracker}
+            {/* Excel Mode - File Upload */}
+            {dataSource === 'excel' && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Upload Excel File</CardTitle>
+                  <CardDescription>
+                    {productMode === 'coffee'
+                      ? "Upload your ACOM Production Consumption Excel file"
+                      : "Upload your Cocoa Traceability Excel file"
+                    }
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <FileUpload
+                    onFileSelect={handleFileSelect}
+                    selectedFile={file}
+                    isLoading={isLoading}
+                  />
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Fabric Mode - Trigger Notebook */}
+            {dataSource === 'fabric' && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Cloud className="w-5 h-5" />
+                    Fabric Lakehouse
+                  </CardTitle>
+                  <CardDescription>
+                    Trigger lineage tracing on Microsoft Fabric
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="fabric-sales-contract">Sales Contract #</Label>
+                    <Input
+                      id="fabric-sales-contract"
+                      placeholder="e.g., 4197250084"
+                      value={fabricSalesContract}
+                      onChange={(e) => setFabricSalesContract(e.target.value)}
+                      disabled={isFabricTriggering || fabricJobStatus === 'InProgress'}
                     />
                   </div>
-                )}
-                <LotInput
-                  lotNumber={lotNumber}
-                  onLotNumberChange={setLotNumber}
-                  availableLots={
-                    productMode === 'coffee' 
-                      ? (isPurchaseMode ? availablePurchaseLots : availableLots)
-                      : availableCocoaSalesContracts
-                  }
-                  disabled={
-                    (productMode === 'coffee' && !tracker) || 
-                    (productMode === 'cocoa' && !cocoaTracker) || 
-                    isProcessing
-                  }
-                />
-                <Button
-                  onClick={handleProcessLot}
-                  disabled={
-                    (productMode === 'coffee' && (!tracker || !lotNumber.trim())) ||
-                    (productMode === 'cocoa' && (!cocoaTracker || !lotNumber.trim())) ||
-                    isProcessing
-                  }
-                  className="w-full"
-                  size="lg"
-                >
-                  {isProcessing ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Processing...
-                    </>
-                  ) : (
-                    productMode === 'coffee' ? "Trace Lineage" : "View Contract"
+                  
+                  <Button
+                    onClick={handleFabricTrigger}
+                    disabled={!fabricSalesContract.trim() || isFabricTriggering || fabricJobStatus === 'InProgress'}
+                    className="w-full"
+                    size="lg"
+                  >
+                    {isFabricTriggering ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Triggering...
+                      </>
+                    ) : fabricJobStatus === 'InProgress' ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Running...
+                      </>
+                    ) : (
+                      <>
+                        <Cloud className="w-4 h-4 mr-2" />
+                        Trigger Lineage Trace
+                      </>
+                    )}
+                  </Button>
+
+                  {/* Job Status Display */}
+                  {fabricJobId && (
+                    <div className="mt-4 p-3 rounded-lg bg-accent/10 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">Job Status</span>
+                        <span className={`text-xs px-2 py-1 rounded-full ${
+                          fabricJobStatus === 'Succeeded' ? 'bg-green-500/20 text-green-600' :
+                          fabricJobStatus === 'Failed' ? 'bg-red-500/20 text-red-600' :
+                          fabricJobStatus === 'InProgress' ? 'bg-blue-500/20 text-blue-600' :
+                          'bg-muted text-muted-foreground'
+                        }`}>
+                          {fabricJobStatus || 'Unknown'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{fabricStatusMessage}</p>
+                      <p className="text-xs text-muted-foreground font-mono truncate">
+                        Job ID: {fabricJobId}
+                      </p>
+                    </div>
                   )}
-                </Button>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Excel Mode - Trace Lot Lineage */}
+            {dataSource === 'excel' && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>{productMode === 'coffee' ? 'Trace Lot Lineage' : 'View Sale Contract'}</CardTitle>
+                  <CardDescription>
+                    {productMode === 'coffee'
+                      ? (isPurchaseMode 
+                        ? "Enter or select a sale contract # to trace forward through production"
+                        : "Enter or select a consumption lot to trace its history")
+                      : "Enter or select a sale contract # to view all records"
+                    }
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {productMode === 'coffee' && (
+                    <div className="flex items-center justify-between p-3 bg-accent/10 rounded-lg">
+                      <Label htmlFor="purchase-mode" className="cursor-pointer">
+                        {isPurchaseMode ? "Sale Contract # Mode" : "Consumption Lot Mode"}
+                      </Label>
+                      <Switch
+                        id="purchase-mode"
+                        checked={isPurchaseMode}
+                        onCheckedChange={(checked) => {
+                          setIsPurchaseMode(checked);
+                          setLotNumber("");
+                          setLineageResult(null);
+                          setLineageResults([]);
+                          setStatistics(null);
+                          setSelectedResultIndex(0);
+                        }}
+                        disabled={!tracker}
+                      />
+                    </div>
+                  )}
+                  <LotInput
+                    lotNumber={lotNumber}
+                    onLotNumberChange={setLotNumber}
+                    availableLots={
+                      productMode === 'coffee' 
+                        ? (isPurchaseMode ? availablePurchaseLots : availableLots)
+                        : availableCocoaSalesContracts
+                    }
+                    disabled={
+                      (productMode === 'coffee' && !tracker) || 
+                      (productMode === 'cocoa' && !cocoaTracker) || 
+                      isProcessing
+                    }
+                  />
+                  <Button
+                    onClick={handleProcessLot}
+                    disabled={
+                      (productMode === 'coffee' && (!tracker || !lotNumber.trim())) ||
+                      (productMode === 'cocoa' && (!cocoaTracker || !lotNumber.trim())) ||
+                      isProcessing
+                    }
+                    className="w-full"
+                    size="lg"
+                  >
+                    {isProcessing ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Processing...
+                      </>
+                    ) : (
+                      productMode === 'coffee' ? "Trace Lineage" : "View Contract"
+                    )}
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
 
             {statistics && !('error' in statistics) && productMode === 'coffee' && (
               <Card>
