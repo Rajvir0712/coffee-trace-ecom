@@ -70,6 +70,10 @@ async function triggerNotebook(salesContract: string): Promise<{ success: boolea
           type: "string",
         },
       },
+      // If the workspace pool isn't available, this helps Fabric start the run.
+      configuration: {
+        useStarterPool: true,
+      },
     },
   };
 
