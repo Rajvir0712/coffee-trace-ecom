@@ -185,8 +185,15 @@ const Index = () => {
       } else {
         throw new Error("No job ID returned");
       }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to trigger notebook';
+    } catch (error: unknown) {
+      let errorMessage = 'Failed to trigger notebook';
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      } else if (typeof error === 'object' && error !== null && 'message' in error) {
+        errorMessage = String((error as { message: unknown }).message);
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      }
       toast.error(errorMessage);
       setFabricJobStatus('Failed');
       setFabricStatusMessage(errorMessage);

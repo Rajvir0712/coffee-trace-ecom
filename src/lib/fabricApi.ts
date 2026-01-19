@@ -22,11 +22,20 @@ export async function triggerLineageTrace(salesContract: string): Promise<Trigge
   });
 
   if (error) {
-    throw new Error(error.message || 'Failed to trigger notebook');
+    // Handle Supabase FunctionsHttpError which has a nested structure
+    const errorMsg = typeof error.message === 'string' 
+      ? error.message 
+      : (typeof error === 'object' ? JSON.stringify(error) : 'Failed to trigger notebook');
+    throw new Error(errorMsg);
   }
 
   if (data?.error) {
-    throw new Error(typeof data.error === 'string' ? data.error : JSON.stringify(data.error));
+    const errorMsg = typeof data.error === 'string' 
+      ? data.error 
+      : (typeof data.error === 'object' && data.error.message 
+        ? String(data.error.message) 
+        : JSON.stringify(data.error));
+    throw new Error(errorMsg);
   }
 
   return data as TriggerResponse;
