@@ -685,13 +685,13 @@ const Index = () => {
                       placeholder="e.g., 4197250084"
                       value={fabricSalesContract}
                       onChange={(e) => setFabricSalesContract(e.target.value)}
-                      disabled={isFabricTriggering || fabricJobStatus === 'InProgress'}
+                      disabled={isFabricTriggering || fabricJobStatus === 'InProgress' || fabricJobStatus === 'Queued'}
                     />
                   </div>
                   
                   <Button
                     onClick={handleFabricTrigger}
-                    disabled={!fabricSalesContract.trim() || isFabricTriggering || fabricJobStatus === 'InProgress'}
+                    disabled={!fabricSalesContract.trim() || isFabricTriggering || fabricJobStatus === 'InProgress' || fabricJobStatus === 'Queued'}
                     className="w-full"
                     size="lg"
                   >
@@ -699,6 +699,11 @@ const Index = () => {
                       <>
                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                         Triggering...
+                      </>
+                    ) : fabricJobStatus === 'Queued' ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Queued...
                       </>
                     ) : fabricJobStatus === 'InProgress' ? (
                       <>
@@ -722,6 +727,7 @@ const Index = () => {
                           fabricJobStatus === 'Succeeded' ? 'bg-green-500/20 text-green-600' :
                           fabricJobStatus === 'Failed' ? 'bg-red-500/20 text-red-600' :
                           fabricJobStatus === 'InProgress' ? 'bg-blue-500/20 text-blue-600' :
+                          fabricJobStatus === 'Queued' ? 'bg-yellow-500/20 text-yellow-600' :
                           'bg-muted text-muted-foreground'
                         }`}>
                           {fabricJobStatus || 'Unknown'}

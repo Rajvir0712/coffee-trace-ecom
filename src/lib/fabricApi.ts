@@ -83,18 +83,19 @@ export async function checkJobStatus(jobId: string): Promise<JobStatusResponse> 
   return response.json();
 }
 
-export type JobStatus = 'NotStarted' | 'InProgress' | 'Succeeded' | 'Failed' | 'Cancelled' | 'Unknown';
+export type JobStatus = 'Queued' | 'InProgress' | 'Succeeded' | 'Failed' | 'Cancelled' | 'Unknown';
 
 export function mapJobStatus(status: string): JobStatus {
   const normalizedStatus = status.toLowerCase();
 
-  // Fabric often reports "NotStarted" while queued. Treat as in-progress (queued).
+  // Fabric reports "NotStarted" while the job is queued/waiting for a pool
   if (
     normalizedStatus.includes('notstarted') ||
     normalizedStatus.includes('not started') ||
-    normalizedStatus.includes('queue')
+    normalizedStatus.includes('queue') ||
+    normalizedStatus.includes('deduplicating')
   ) {
-    return 'InProgress';
+    return 'Queued';
   }
 
   if (normalizedStatus.includes('progress') || normalizedStatus.includes('running')) {
@@ -113,6 +114,10 @@ export function mapJobStatus(status: string): JobStatus {
   return 'Unknown';
 }
 
+export function isTerminalStatus(status: JobStatus): boolean {
+  return status === 'Succeeded' || status === 'Failed' || status === 'Cancelled';
+}
+
 export async function runLineageTraceWithPolling(
   salesContract: string,
   onStatusChange: (status: JobStatus, message: string) => void,
@@ -120,7 +125,7 @@ export async function runLineageTraceWithPolling(
   maxPollAttempts: number = 120 // 10 minutes max
 ): Promise<JobStatusResponse> {
   // Trigger the notebook
-  onStatusChange('NotStarted', 'Triggering notebook...');
+  onStatusChange('Queued', 'Triggering notebook...');
   const triggerResult = await triggerLineageTrace(salesContract);
 
   if (!triggerResult.job_id) {
@@ -128,7 +133,7 @@ export async function runLineageTraceWithPolling(
   }
 
   const jobId = triggerResult.job_id;
-  onStatusChange('InProgress', `Job started: ${jobId}`);
+  onStatusChange('Queued', `Job queued: ${jobId}`);
 
   // Poll for completion
   let attempts = 0;
