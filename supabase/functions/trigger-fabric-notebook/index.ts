@@ -65,7 +65,10 @@ async function triggerNotebook(salesContract: string): Promise<{ success: boolea
   const payload = {
     executionData: {
       parameters: {
-        sales_contract: salesContract,
+        sales_contract: {
+          value: salesContract,
+          type: "string",
+        },
       },
     },
   };
