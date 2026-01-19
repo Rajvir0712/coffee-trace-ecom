@@ -50,6 +50,27 @@ const Index = () => {
   const [fabricStatusMessage, setFabricStatusMessage] = useState("");
   const [isFabricTriggering, setIsFabricTriggering] = useState(false);
 
+  const toText = (value: unknown): string => {
+    if (typeof value === "string") return value;
+    if (value instanceof Error) return value.message;
+    if (value && typeof value === "object") {
+      const v = value as Record<string, unknown>;
+      if (typeof v.message === "string") return v.message;
+      if (typeof v.error === "string") return v.error;
+      try {
+        return JSON.stringify(value);
+      } catch {
+        return String(value);
+      }
+    }
+    return String(value ?? "");
+  };
+
+  const toastError = (value: unknown, fallback = "Error") => {
+    const msg = toText(value).trim();
+    toast.error(msg || fallback);
+  };
+
   const handleFileSelect = async (selectedFile: File) => {
     setFile(selectedFile);
     setIsLoading(true);
@@ -126,7 +147,7 @@ const Index = () => {
 
           const stats = tracker.getLotStatistics(lotNumber.trim());
           if ('error' in stats) {
-            toast.error(stats.error);
+            toastError(stats.error, 'Failed to get lot statistics');
             setStatistics(null);
           } else {
             setStatistics(stats);
@@ -226,7 +247,7 @@ const Index = () => {
         }
 
         if (mappedStatus === 'Failed') {
-          toast.error(status.failure_reason || "Notebook job failed");
+          toastError(status.failure_reason ?? "Notebook job failed", "Notebook job failed");
           return;
         }
 
