@@ -87,6 +87,16 @@ export type JobStatus = 'NotStarted' | 'InProgress' | 'Succeeded' | 'Failed' | '
 
 export function mapJobStatus(status: string): JobStatus {
   const normalizedStatus = status.toLowerCase();
+
+  // Fabric often reports "NotStarted" while queued. Treat as in-progress (queued).
+  if (
+    normalizedStatus.includes('notstarted') ||
+    normalizedStatus.includes('not started') ||
+    normalizedStatus.includes('queue')
+  ) {
+    return 'InProgress';
+  }
+
   if (normalizedStatus.includes('progress') || normalizedStatus.includes('running')) {
     return 'InProgress';
   }
@@ -99,9 +109,7 @@ export function mapJobStatus(status: string): JobStatus {
   if (normalizedStatus.includes('cancel')) {
     return 'Cancelled';
   }
-  if (normalizedStatus.includes('not') || normalizedStatus.includes('queue')) {
-    return 'NotStarted';
-  }
+
   return 'Unknown';
 }
 
