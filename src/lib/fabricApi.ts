@@ -17,28 +17,49 @@ export interface JobStatusResponse {
 }
 
 export async function triggerLineageTrace(salesContract: string): Promise<TriggerResponse> {
-  const { data, error } = await supabase.functions.invoke('trigger-fabric-notebook', {
-    body: { sales_contract: salesContract },
-  });
+  try {
+    const { data, error } = await supabase.functions.invoke('trigger-fabric-notebook', {
+      body: { sales_contract: salesContract },
+    });
 
-  if (error) {
-    // Handle Supabase FunctionsHttpError which has a nested structure
-    const errorMsg = typeof error.message === 'string' 
-      ? error.message 
-      : (typeof error === 'object' ? JSON.stringify(error) : 'Failed to trigger notebook');
-    throw new Error(errorMsg);
+    if (error) {
+      // Supabase FunctionsHttpError - extract the actual error message
+      let errorMsg = 'Failed to trigger notebook';
+      if (typeof error === 'object' && error !== null) {
+        if ('message' in error && typeof error.message === 'string') {
+          // Try to parse if it's a JSON string
+          try {
+            const parsed = JSON.parse(error.message);
+            errorMsg = parsed.error || parsed.message || error.message;
+          } catch {
+            errorMsg = error.message;
+          }
+        } else if ('message' in error && typeof error.message === 'object' && error.message !== null) {
+          // The message itself is an object
+          const msgObj = error.message as Record<string, unknown>;
+          errorMsg = String(msgObj.message || msgObj.error || JSON.stringify(error.message));
+        }
+      }
+      throw new Error(errorMsg);
+    }
+
+    if (data?.error) {
+      const errorMsg = typeof data.error === 'string' 
+        ? data.error 
+        : (typeof data.error === 'object' && data.error !== null && 'message' in data.error
+          ? String(data.error.message) 
+          : JSON.stringify(data.error));
+      throw new Error(errorMsg);
+    }
+
+    return data as TriggerResponse;
+  } catch (err) {
+    // Final safety net - ensure we always throw a string message
+    if (err instanceof Error) {
+      throw err;
+    }
+    throw new Error(typeof err === 'string' ? err : 'Failed to trigger notebook');
   }
-
-  if (data?.error) {
-    const errorMsg = typeof data.error === 'string' 
-      ? data.error 
-      : (typeof data.error === 'object' && data.error.message 
-        ? String(data.error.message) 
-        : JSON.stringify(data.error));
-    throw new Error(errorMsg);
-  }
-
-  return data as TriggerResponse;
 }
 
 export async function checkJobStatus(jobId: string): Promise<JobStatusResponse> {
