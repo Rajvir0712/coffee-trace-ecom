@@ -25,21 +25,14 @@ export async function triggerLineageTrace(salesContract: string): Promise<Trigge
     throw new Error(error.message || 'Failed to trigger notebook');
   }
 
-  if (data.error) {
-    throw new Error(data.error);
+  if (data?.error) {
+    throw new Error(typeof data.error === 'string' ? data.error : JSON.stringify(data.error));
   }
 
   return data as TriggerResponse;
 }
 
 export async function checkJobStatus(jobId: string): Promise<JobStatusResponse> {
-  const { data, error } = await supabase.functions.invoke('check-fabric-job', {
-    body: null,
-    method: 'GET',
-    headers: {},
-  });
-
-  // Using query params via a workaround since invoke doesn't support GET params well
   const response = await fetch(
     `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/check-fabric-job?job_id=${encodeURIComponent(jobId)}`,
     {
@@ -53,7 +46,8 @@ export async function checkJobStatus(jobId: string): Promise<JobStatusResponse> 
 
   if (!response.ok) {
     const errorData = await response.json();
-    throw new Error(errorData.error || 'Failed to check job status');
+    const errorMsg = typeof errorData.error === 'string' ? errorData.error : 'Failed to check job status';
+    throw new Error(errorMsg);
   }
 
   return response.json();
