@@ -16,9 +16,8 @@ import { CoffeeLotLineageTracker, LineageResult, LotStatistics } from "@/lib/exc
 import { CocoaTracker, CocoaRecord } from "@/lib/cocoaParser";
 import { CocoaViewer } from "@/components/CocoaViewer";
 import { analyzeVLOOKUPStructure } from "@/lib/analyzeVLOOKUP";
-import { GraphQLApiTest } from "@/components/GraphQLApiTest";
 import { toast } from "sonner";
-import { Coffee, TrendingUp, Package, Calendar, Loader2, Maximize2, Minimize2, Download, Database } from "lucide-react";
+import { Coffee, TrendingUp, Package, Calendar, Loader2, Maximize2, Minimize2, Download } from "lucide-react";
 import logo from "@/assets/logo.png";
 
 const Index = () => {
@@ -40,7 +39,6 @@ const Index = () => {
   const [isPurchaseMode, setIsPurchaseMode] = useState(false);
   const [joinSteps, setJoinSteps] = useState<Array<{step: string, matches: any[]}>>([]);
   const [selectedResultIndex, setSelectedResultIndex] = useState(0);
-  const [mainTab, setMainTab] = useState<'traceability' | 'api-test'>('traceability');
 
   const handleFileSelect = async (selectedFile: File) => {
     setFile(selectedFile);
@@ -484,20 +482,6 @@ const Index = () => {
 
       {/* Main Content */}
       <main className="container mx-auto px-4 py-8 max-w-7xl relative">
-        {/* Main Tab Navigation */}
-        <Tabs value={mainTab} onValueChange={(v) => setMainTab(v as 'traceability' | 'api-test')} className="w-full">
-          <TabsList className="grid w-full max-w-md mx-auto grid-cols-2 mb-6">
-            <TabsTrigger value="traceability" className="flex items-center gap-2">
-              <Coffee className="h-4 w-4" />
-              Traceability
-            </TabsTrigger>
-            <TabsTrigger value="api-test" className="flex items-center gap-2">
-              <Database className="h-4 w-4" />
-              API Test
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="traceability">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left Panel - Controls */}
           <div className="lg:col-span-1 space-y-6">
@@ -856,12 +840,6 @@ const Index = () => {
             )}
           </div>
         </div>
-          </TabsContent>
-
-          <TabsContent value="api-test">
-            <GraphQLApiTest />
-          </TabsContent>
-        </Tabs>
       </main>
 
       {/* Footer */}
