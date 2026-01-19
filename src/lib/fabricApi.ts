@@ -1,0 +1,126 @@
+import { supabase } from "@/integrations/supabase/client";
+
+export interface TriggerResponse {
+  status: string;
+  message: string;
+  job_id?: string;
+  sales_contract: string;
+  triggered_at: string;
+}
+
+export interface JobStatusResponse {
+  job_id: string;
+  status: string;
+  start_time?: string;
+  end_time?: string;
+  failure_reason?: string;
+}
+
+export async function triggerLineageTrace(salesContract: string): Promise<TriggerResponse> {
+  const { data, error } = await supabase.functions.invoke('trigger-fabric-notebook', {
+    body: { sales_contract: salesContract },
+  });
+
+  if (error) {
+    throw new Error(error.message || 'Failed to trigger notebook');
+  }
+
+  if (data.error) {
+    throw new Error(data.error);
+  }
+
+  return data as TriggerResponse;
+}
+
+export async function checkJobStatus(jobId: string): Promise<JobStatusResponse> {
+  const { data, error } = await supabase.functions.invoke('check-fabric-job', {
+    body: null,
+    method: 'GET',
+    headers: {},
+  });
+
+  // Using query params via a workaround since invoke doesn't support GET params well
+  const response = await fetch(
+    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/check-fabric-job?job_id=${encodeURIComponent(jobId)}`,
+    {
+      method: 'GET',
+      headers: {
+        'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        'Content-Type': 'application/json',
+      },
+    }
+  );
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.error || 'Failed to check job status');
+  }
+
+  return response.json();
+}
+
+export type JobStatus = 'NotStarted' | 'InProgress' | 'Succeeded' | 'Failed' | 'Cancelled' | 'Unknown';
+
+export function mapJobStatus(status: string): JobStatus {
+  const normalizedStatus = status.toLowerCase();
+  if (normalizedStatus.includes('progress') || normalizedStatus.includes('running')) {
+    return 'InProgress';
+  }
+  if (normalizedStatus.includes('success') || normalizedStatus.includes('completed')) {
+    return 'Succeeded';
+  }
+  if (normalizedStatus.includes('fail')) {
+    return 'Failed';
+  }
+  if (normalizedStatus.includes('cancel')) {
+    return 'Cancelled';
+  }
+  if (normalizedStatus.includes('not') || normalizedStatus.includes('queue')) {
+    return 'NotStarted';
+  }
+  return 'Unknown';
+}
+
+export async function runLineageTraceWithPolling(
+  salesContract: string,
+  onStatusChange: (status: JobStatus, message: string) => void,
+  pollIntervalMs: number = 5000,
+  maxPollAttempts: number = 120 // 10 minutes max
+): Promise<JobStatusResponse> {
+  // Trigger the notebook
+  onStatusChange('NotStarted', 'Triggering notebook...');
+  const triggerResult = await triggerLineageTrace(salesContract);
+
+  if (!triggerResult.job_id) {
+    throw new Error('No job ID returned from trigger');
+  }
+
+  const jobId = triggerResult.job_id;
+  onStatusChange('InProgress', `Job started: ${jobId}`);
+
+  // Poll for completion
+  let attempts = 0;
+  while (attempts < maxPollAttempts) {
+    await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+    attempts++;
+
+    const statusResult = await checkJobStatus(jobId);
+    const mappedStatus = mapJobStatus(statusResult.status);
+
+    onStatusChange(mappedStatus, `Status: ${statusResult.status}`);
+
+    if (mappedStatus === 'Succeeded') {
+      return statusResult;
+    }
+
+    if (mappedStatus === 'Failed') {
+      throw new Error(statusResult.failure_reason || 'Notebook job failed');
+    }
+
+    if (mappedStatus === 'Cancelled') {
+      throw new Error('Notebook job was cancelled');
+    }
+  }
+
+  throw new Error('Polling timeout: Job did not complete in time');
+}
