@@ -85,6 +85,45 @@ export async function checkJobStatus(jobId: string): Promise<JobStatusResponse> 
 
 export type JobStatus = 'Queued' | 'InProgress' | 'Succeeded' | 'Failed' | 'Cancelled' | 'Unknown';
 
+// GraphQL Lineage Data types
+export interface GraphQLLineageData {
+  lineage_nodes: Array<Record<string, unknown>>;
+  lineage_edges: Array<Record<string, unknown>>;
+  lineage_summary: Array<Record<string, unknown>>;
+}
+
+export async function queryFabricGraphQL(salesContract?: string, limit: number = 20): Promise<GraphQLLineageData> {
+  try {
+    const { data, error } = await supabase.functions.invoke('query-fabric-graphql', {
+      body: { sales_contract: salesContract, limit },
+    });
+
+    if (error) {
+      let errorMsg = 'Failed to query GraphQL';
+      if (typeof error === 'object' && error !== null && 'message' in error) {
+        try {
+          const parsed = JSON.parse(String(error.message));
+          errorMsg = parsed.error || parsed.message || String(error.message);
+        } catch {
+          errorMsg = String(error.message);
+        }
+      }
+      throw new Error(errorMsg);
+    }
+
+    if (data?.error) {
+      throw new Error(typeof data.error === 'string' ? data.error : JSON.stringify(data.error));
+    }
+
+    return data as GraphQLLineageData;
+  } catch (err) {
+    if (err instanceof Error) {
+      throw err;
+    }
+    throw new Error(typeof err === 'string' ? err : 'Failed to query GraphQL');
+  }
+}
+
 export function mapJobStatus(status: string): JobStatus {
   const normalizedStatus = status.toLowerCase();
 
