@@ -79,63 +79,123 @@ async function queryGraphQL(accessToken: string, query: string): Promise<unknown
   return result.data;
 }
 
-function buildQuery(salesContract?: string, limit: number = 20): string {
-  // Build filter if sales_contract is provided
-  const nodesFilter = salesContract 
-    ? `(first: ${limit}, filter: { sales_contract: { eq: "${salesContract}" } })` 
-    : `(first: ${limit})`;
-  
-  const edgesFilter = salesContract
-    ? `(first: ${limit}, filter: { sales_contract: { eq: "${salesContract}" } })`
-    : `(first: ${limit})`;
-    
-  const summaryFilter = salesContract
-    ? `(first: ${limit}, filter: { sales_contract: { eq: "${salesContract}" } })`
-    : `(first: ${limit})`;
-
-  // Query all three tables - using flexible field selection
-  // Since we don't know exact schema, we'll query and let GraphQL return available fields
-  return `
-    query GetLineageData {
-      lineage_nodes${nodesFilter} {
-        items {
-          sales_contract
-          lot_no
-          item_no
-          description
-          certified
-          process_type
-          output_quantity
-          output_date
-          location_code
-          unit_of_measure
-          counterparty
-          production_order
-          is_origin
-          depth
-        }
-      }
-      lineage_edges${edgesFilter} {
-        items {
-          sales_contract
-          source_lot
-          target_lot
-          relationship
-          depth
-        }
-      }
-      lineage_summary${summaryFilter} {
-        items {
-          sales_contract
-          total_lots
-          max_depth
-          origin_count
-          process_types
-          trace_timestamp
+// Introspection query to discover available fields for a type
+async function getTypeFields(accessToken: string, typeName: string): Promise<string[]> {
+  const introspectionQuery = `
+    query IntrospectType {
+      __type(name: "${typeName}") {
+        fields {
+          name
         }
       }
     }
   `;
+
+  try {
+    const data = await queryGraphQL(accessToken, introspectionQuery) as {
+      __type?: { fields?: Array<{ name: string }> };
+    };
+    
+    if (data.__type?.fields) {
+      return data.__type.fields.map(f => f.name);
+    }
+    return [];
+  } catch (error) {
+    console.error(`Failed to introspect type ${typeName}:`, error);
+    return [];
+  }
+}
+
+// Get fields for the items type within a connection
+async function getItemsTypeFields(accessToken: string, connectionTypeName: string): Promise<string[]> {
+  // First, try to get the items type directly
+  // The pattern is usually: lineage_nodes -> lineage_nodesConnection -> items -> lineage_nodes (the actual record type)
+  
+  // Try common naming patterns
+  const possibleTypeNames = [
+    connectionTypeName,  // e.g., "lineage_nodes"
+    `${connectionTypeName}_row`,  // e.g., "lineage_nodes_row"
+    `${connectionTypeName}Row`,   // e.g., "lineage_nodesRow"
+  ];
+
+  for (const typeName of possibleTypeNames) {
+    const fields = await getTypeFields(accessToken, typeName);
+    if (fields.length > 0) {
+      // Filter out connection/pagination fields, keep only scalar fields
+      return fields.filter(f => !['items', 'pageInfo', 'totalCount', 'edges', 'node', 'cursor'].includes(f));
+    }
+  }
+
+  return [];
+}
+
+function buildDynamicQuery(
+  nodesFields: string[],
+  edgesFields: string[],
+  summaryFields: string[],
+  limit: number = 20
+): string {
+  const nodesFieldsStr = nodesFields.length > 0 ? nodesFields.join('\n          ') : '_no_fields_found';
+  const edgesFieldsStr = edgesFields.length > 0 ? edgesFields.join('\n          ') : '_no_fields_found';
+  const summaryFieldsStr = summaryFields.length > 0 ? summaryFields.join('\n          ') : '_no_fields_found';
+
+  return `
+    query GetLineageData {
+      lineage_nodes(first: ${limit}) {
+        items {
+          ${nodesFieldsStr}
+        }
+      }
+      lineage_edges(first: ${limit}) {
+        items {
+          ${edgesFieldsStr}
+        }
+      }
+      lineage_summary(first: ${limit}) {
+        items {
+          ${summaryFieldsStr}
+        }
+      }
+    }
+  `;
+}
+
+// Fallback: Query with minimal/no field selection to see what's returned
+async function queryWithMinimalFields(accessToken: string, limit: number): Promise<GraphQLResponse> {
+  // Try querying with __typename first to see what types exist
+  const exploratoryQuery = `
+    query ExploreSchema {
+      lineage_nodes(first: ${limit}) {
+        items {
+          __typename
+        }
+      }
+      lineage_edges(first: ${limit}) {
+        items {
+          __typename
+        }
+      }
+      lineage_summary(first: ${limit}) {
+        items {
+          __typename
+        }
+      }
+    }
+  `;
+
+  const data = await queryGraphQL(accessToken, exploratoryQuery);
+  
+  const typedData = data as {
+    lineage_nodes?: { items?: Array<Record<string, unknown>> };
+    lineage_edges?: { items?: Array<Record<string, unknown>> };
+    lineage_summary?: { items?: Array<Record<string, unknown>> };
+  };
+
+  return {
+    lineage_nodes: typedData.lineage_nodes?.items || [],
+    lineage_edges: typedData.lineage_edges?.items || [],
+    lineage_summary: typedData.lineage_summary?.items || [],
+  };
 }
 
 serve(async (req) => {
@@ -151,27 +211,47 @@ serve(async (req) => {
       );
     }
 
-    const { sales_contract, limit = 20 }: QueryRequest = await req.json();
+    const { limit = 20 }: QueryRequest = await req.json();
 
     // Get access token using Service Principal
     const accessToken = await getAccessToken();
 
-    // Build and execute GraphQL query
-    const query = buildQuery(sales_contract, limit);
-    const data = await queryGraphQL(accessToken, query);
+    // First, try to discover the schema using introspection
+    console.log('Discovering schema via introspection...');
+    
+    const [nodesFields, edgesFields, summaryFields] = await Promise.all([
+      getItemsTypeFields(accessToken, 'lineage_nodes'),
+      getItemsTypeFields(accessToken, 'lineage_edges'),
+      getItemsTypeFields(accessToken, 'lineage_summary'),
+    ]);
 
-    // Transform response to expected format
-    const typedData = data as {
-      lineage_nodes?: { items?: Array<Record<string, unknown>> };
-      lineage_edges?: { items?: Array<Record<string, unknown>> };
-      lineage_summary?: { items?: Array<Record<string, unknown>> };
-    };
+    console.log('Discovered fields:', { nodesFields, edgesFields, summaryFields });
 
-    const response: GraphQLResponse = {
-      lineage_nodes: typedData.lineage_nodes?.items || [],
-      lineage_edges: typedData.lineage_edges?.items || [],
-      lineage_summary: typedData.lineage_summary?.items || [],
-    };
+    let response: GraphQLResponse;
+
+    if (nodesFields.length > 0 || edgesFields.length > 0 || summaryFields.length > 0) {
+      // We found fields via introspection, use them
+      const query = buildDynamicQuery(nodesFields, edgesFields, summaryFields, limit);
+      console.log('Executing dynamic query:', query);
+      
+      const data = await queryGraphQL(accessToken, query);
+      
+      const typedData = data as {
+        lineage_nodes?: { items?: Array<Record<string, unknown>> };
+        lineage_edges?: { items?: Array<Record<string, unknown>> };
+        lineage_summary?: { items?: Array<Record<string, unknown>> };
+      };
+
+      response = {
+        lineage_nodes: typedData.lineage_nodes?.items || [],
+        lineage_edges: typedData.lineage_edges?.items || [],
+        lineage_summary: typedData.lineage_summary?.items || [],
+      };
+    } else {
+      // Fallback: try minimal query to at least get __typename
+      console.log('Introspection returned no fields, trying minimal query...');
+      response = await queryWithMinimalFields(accessToken, limit);
+    }
 
     return new Response(
       JSON.stringify(response),
