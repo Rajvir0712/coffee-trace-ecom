@@ -9,6 +9,11 @@ import * as XLSX from "xlsx";
 export interface GraphQLLineageData {
   lineage_nodes: Array<Record<string, unknown>>;
   lineage_edges: Array<Record<string, unknown>>;
+  pagination_info?: {
+    total_records: number;
+    pages_fetched: number;
+    batch_size: number;
+  };
 }
 
 interface GraphQLDataPreviewProps {
@@ -135,13 +140,18 @@ export function GraphQLDataPreview({ data, isLoading, error, onRefresh }: GraphQ
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col gap-1">
           <CardTitle className="flex items-center gap-2">
             <Database className="w-5 h-5" />
             Lineage Data Preview
           </CardTitle>
           <CardDescription>
             Data from Fabric Lakehouse GraphQL API
+            {data?.pagination_info && (
+              <span className="ml-2 text-xs font-medium text-primary">
+                • {data.pagination_info.total_records.toLocaleString()} records from {data.pagination_info.pages_fetched} page(s) @ {data.pagination_info.batch_size.toLocaleString()}/page
+              </span>
+            )}
           </CardDescription>
         </div>
         <div className="flex items-center gap-2">
