@@ -8,7 +8,6 @@ import { RefreshCw, Database, AlertCircle } from "lucide-react";
 export interface GraphQLLineageData {
   lineage_nodes: Array<Record<string, unknown>>;
   lineage_edges: Array<Record<string, unknown>>;
-  lineage_summary: Array<Record<string, unknown>>;
 }
 
 interface GraphQLDataPreviewProps {
@@ -130,15 +129,12 @@ export function GraphQLDataPreview({ data, isLoading, error, onRefresh }: GraphQ
           <LoadingSkeleton />
         ) : data ? (
           <Tabs defaultValue="nodes" className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="nodes">
                 Nodes ({data.lineage_nodes.length})
               </TabsTrigger>
               <TabsTrigger value="edges">
                 Edges ({data.lineage_edges.length})
-              </TabsTrigger>
-              <TabsTrigger value="summary">
-                Summary ({data.lineage_summary.length})
               </TabsTrigger>
             </TabsList>
             <TabsContent value="nodes" className="mt-4">
@@ -146,9 +142,6 @@ export function GraphQLDataPreview({ data, isLoading, error, onRefresh }: GraphQ
             </TabsContent>
             <TabsContent value="edges" className="mt-4">
               <DataTable data={data.lineage_edges} tableName="lineage_edges" />
-            </TabsContent>
-            <TabsContent value="summary" className="mt-4">
-              <DataTable data={data.lineage_summary} tableName="lineage_summary" />
             </TabsContent>
           </Tabs>
         ) : (
