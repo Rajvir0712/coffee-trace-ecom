@@ -231,16 +231,8 @@ const Index = () => {
 
   const pollFabricJobStatus = async (jobId: string) => {
     const pollInterval = 5000; // 5 seconds
-    const maxAttempts = 120; // 10 minutes max
-    let attempts = 0;
 
     const poll = async () => {
-      if (attempts >= maxAttempts) {
-        setFabricJobStatus('Failed');
-        setFabricStatusMessage('Polling timeout: Job did not complete in time');
-        return;
-      }
-
       try {
         const status = await checkJobStatus(jobId);
         const mappedStatus = mapJobStatus(status.status);
@@ -265,12 +257,10 @@ const Index = () => {
         }
 
         // Continue polling
-        attempts++;
         setTimeout(poll, pollInterval);
       } catch (error) {
         console.error('Error polling job status:', error);
         // Continue polling even on error
-        attempts++;
         setTimeout(poll, pollInterval);
       }
     };
