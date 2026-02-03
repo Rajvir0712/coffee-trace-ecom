@@ -78,16 +78,50 @@ async function queryGraphQL(accessToken: string, query: string): Promise<unknown
   return result.data;
 }
 
-function buildQuery(limit: number = 1000): string {
+function buildQuery(first: number = 1000, after?: string): string {
+  const afterClause = after ? `, after: "${after}"` : '';
   return `
     query {
-      lineage_nodes(first: ${limit}) {
+      lineage_nodes(first: ${first}${afterClause}) {
         items {
           sale_contract
         }
+        endCursor
+        hasNextPage
       }
     }
   `;
+}
+
+async function fetchAllLineageNodes(accessToken: string, batchSize: number = 1000): Promise<Array<Record<string, unknown>>> {
+  const allNodes: Array<Record<string, unknown>> = [];
+  let hasNextPage = true;
+  let cursor: string | undefined = undefined;
+  let pageCount = 0;
+
+  while (hasNextPage) {
+    pageCount++;
+    const query = buildQuery(batchSize, cursor);
+    console.log(`Fetching page ${pageCount}...`);
+    
+    const data = await queryGraphQL(accessToken, query) as {
+      lineage_nodes?: {
+        items?: Array<Record<string, unknown>>;
+        endCursor?: string;
+        hasNextPage?: boolean;
+      };
+    };
+
+    const items = data.lineage_nodes?.items || [];
+    allNodes.push(...items);
+
+    hasNextPage = data.lineage_nodes?.hasNextPage ?? false;
+    cursor = data.lineage_nodes?.endCursor;
+
+    console.log(`Page ${pageCount}: fetched ${items.length} records, total: ${allNodes.length}, hasNextPage: ${hasNextPage}`);
+  }
+
+  return allNodes;
 }
 
 serve(async (req) => {
@@ -103,23 +137,19 @@ serve(async (req) => {
       );
     }
 
+    // Parse request (limit is now batch size for pagination)
     const { limit = 1000 }: QueryRequest = await req.json();
 
     // Get access token using Service Principal
     const accessToken = await getAccessToken();
 
-    // Build and execute query
-    const query = buildQuery(limit);
-    console.log('Executing query:', query);
-    
-    const data = await queryGraphQL(accessToken, query);
-    
-    const typedData = data as {
-      lineage_nodes?: { items?: Array<Record<string, unknown>> };
-    };
+    // Fetch ALL records using pagination
+    console.log('Starting full extraction of lineage_nodes...');
+    const allNodes = await fetchAllLineageNodes(accessToken, limit);
+    console.log(`Total records extracted: ${allNodes.length}`);
 
     const response: GraphQLResponse = {
-      lineage_nodes: typedData.lineage_nodes?.items || [],
+      lineage_nodes: allNodes,
       lineage_edges: [],
     };
 
