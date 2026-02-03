@@ -78,42 +78,12 @@ async function queryGraphQL(accessToken: string, query: string): Promise<unknown
   return result.data;
 }
 
-// Known fields for lineage tables (introspection is disabled on Fabric GraphQL)
-const LINEAGE_NODES_FIELDS = [
-  'node_id',
-  'node_type',
-  'node_name',
-  'lot_number',
-  'sales_contract',
-  'quantity',
-  'uom',
-  'source_table',
-  'created_at'
-];
-
-const LINEAGE_EDGES_FIELDS = [
-  'edge_id',
-  'source_node_id',
-  'target_node_id',
-  'relationship_type',
-  'quantity',
-  'created_at'
-];
-
-function buildQuery(limit: number = 20): string {
-  const nodesFieldsStr = LINEAGE_NODES_FIELDS.join('\n          ');
-  const edgesFieldsStr = LINEAGE_EDGES_FIELDS.join('\n          ');
-
+function buildQuery(limit: number = 1000): string {
   return `
-    query GetLineageData {
+    query {
       lineage_nodes(first: ${limit}) {
         items {
-          ${nodesFieldsStr}
-        }
-      }
-      lineage_edges(first: ${limit}) {
-        items {
-          ${edgesFieldsStr}
+          sale_contract
         }
       }
     }
@@ -133,25 +103,24 @@ serve(async (req) => {
       );
     }
 
-    const { limit = 20 }: QueryRequest = await req.json();
+    const { limit = 1000 }: QueryRequest = await req.json();
 
     // Get access token using Service Principal
     const accessToken = await getAccessToken();
 
-    // Build and execute query with known fields
+    // Build and execute query
     const query = buildQuery(limit);
-    console.log('Executing query with known fields');
+    console.log('Executing query:', query);
     
     const data = await queryGraphQL(accessToken, query);
     
     const typedData = data as {
       lineage_nodes?: { items?: Array<Record<string, unknown>> };
-      lineage_edges?: { items?: Array<Record<string, unknown>> };
     };
 
     const response: GraphQLResponse = {
       lineage_nodes: typedData.lineage_nodes?.items || [],
-      lineage_edges: typedData.lineage_edges?.items || [],
+      lineage_edges: [],
     };
 
     return new Response(
