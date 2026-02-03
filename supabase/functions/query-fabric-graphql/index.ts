@@ -94,27 +94,42 @@ function buildQueryWithOffset(first: number = 1000, offset: number = 0): string 
   `;
 }
 
-function buildQuery(first: number = 1000, after?: string): string {
+function buildIntrospectionQuery(): string {
+  return `
+    query {
+      __type(name: "lineage_nodes") {
+        fields {
+          name
+        }
+      }
+    }
+  `;
+}
+
+function buildFieldDiscoveryQuery(): string {
+  // Fabric GraphQL uses a specific introspection pattern
+  return `
+    query IntrospectionQuery {
+      __schema {
+        types {
+          name
+          fields {
+            name
+          }
+        }
+      }
+    }
+  `;
+}
+
+function buildQuery(first: number = 1000, after?: string, fields: string[] = ['sale_contract']): string {
   const afterClause = after ? `, after: "${after}"` : '';
+  const fieldList = fields.join('\n          ');
   return `
     query {
       lineage_nodes(first: ${first}${afterClause}) {
         items {
-          sale_contract
-          lot_no
-          process_type
-          item_no
-          description
-          quantity
-          date
-          location_code
-          counterparty
-          prod_order_no
-          lot_dest
-          vendor_name
-          document_no
-          node_type
-          source_table
+          ${fieldList}
         }
         endCursor
         hasNextPage
@@ -123,7 +138,48 @@ function buildQuery(first: number = 1000, after?: string): string {
   `;
 }
 
+async function getTableFields(accessToken: string): Promise<string[]> {
+  const query = buildIntrospectionQuery();
+  const data = await queryGraphQL(accessToken, query) as {
+    __type?: {
+      fields?: Array<{ name: string }>;
+    };
+  };
+
+  const fields = data.__type?.fields?.map(f => f.name) || [];
+  // Filter out pagination/metadata fields
+  const excludeFields = ['endCursor', 'hasNextPage', 'items'];
+  return fields.filter(f => !excludeFields.includes(f));
+}
+
+async function discoverFields(accessToken: string): Promise<string[]> {
+  // Try to discover the actual field names from the schema
+  try {
+    const query = buildFieldDiscoveryQuery();
+    const data = await queryGraphQL(accessToken, query) as {
+      __schema?: {
+        types?: Array<{ name: string; fields?: Array<{ name: string }> }>;
+      };
+    };
+
+    const lineageNodesType = data.__schema?.types?.find(t => t.name === 'lineage_nodes');
+    if (lineageNodesType?.fields) {
+      const fields = lineageNodesType.fields.map(f => f.name);
+      console.log(`Discovered fields: ${fields.join(', ')}`);
+      return fields;
+    }
+  } catch (err) {
+    console.log('Schema introspection failed:', err);
+  }
+  return ['sale_contract']; // Fallback
+}
+
 async function fetchAllLineageNodes(accessToken: string, batchSize: number = 1000): Promise<Array<Record<string, unknown>>> {
+  // Discover available fields from the schema
+  console.log('Discovering schema fields...');
+  const fields = await discoverFields(accessToken);
+  console.log(`Using ${fields.length} fields: ${fields.join(', ')}`);
+
   const allNodes: Array<Record<string, unknown>> = [];
   let hasNextPage = true;
   let cursor: string | undefined = undefined;
@@ -132,7 +188,7 @@ async function fetchAllLineageNodes(accessToken: string, batchSize: number = 100
 
   while (hasNextPage && pageCount < maxPages) {
     pageCount++;
-    const query = buildQuery(batchSize, cursor);
+    const query = buildQuery(batchSize, cursor, fields);
     console.log(`Fetching page ${pageCount}, cursor: ${cursor ? cursor.substring(0, 50) + '...' : 'none'}`);
     
     const data = await queryGraphQL(accessToken, query) as {
