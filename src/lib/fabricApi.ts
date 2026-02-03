@@ -89,7 +89,6 @@ export type JobStatus = 'Queued' | 'InProgress' | 'Succeeded' | 'Failed' | 'Canc
 export interface GraphQLLineageData {
   lineage_nodes: Array<Record<string, unknown>>;
   lineage_edges: Array<Record<string, unknown>>;
-  lineage_summary: Array<Record<string, unknown>>;
 }
 
 export async function queryFabricGraphQL(salesContract?: string, limit: number = 20): Promise<GraphQLLineageData> {

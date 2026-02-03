@@ -13,7 +13,6 @@ interface QueryRequest {
 interface GraphQLResponse {
   lineage_nodes: Array<Record<string, unknown>>;
   lineage_edges: Array<Record<string, unknown>>;
-  lineage_summary: Array<Record<string, unknown>>;
 }
 
 async function getAccessToken(): Promise<string> {
@@ -132,12 +131,10 @@ async function getItemsTypeFields(accessToken: string, connectionTypeName: strin
 function buildDynamicQuery(
   nodesFields: string[],
   edgesFields: string[],
-  summaryFields: string[],
   limit: number = 20
 ): string {
   const nodesFieldsStr = nodesFields.length > 0 ? nodesFields.join('\n          ') : '_no_fields_found';
   const edgesFieldsStr = edgesFields.length > 0 ? edgesFields.join('\n          ') : '_no_fields_found';
-  const summaryFieldsStr = summaryFields.length > 0 ? summaryFields.join('\n          ') : '_no_fields_found';
 
   return `
     query GetLineageData {
@@ -149,11 +146,6 @@ function buildDynamicQuery(
       lineage_edges(first: ${limit}) {
         items {
           ${edgesFieldsStr}
-        }
-      }
-      lineage_summary(first: ${limit}) {
-        items {
-          ${summaryFieldsStr}
         }
       }
     }
@@ -175,11 +167,6 @@ async function queryWithMinimalFields(accessToken: string, limit: number): Promi
           __typename
         }
       }
-      lineage_summary(first: ${limit}) {
-        items {
-          __typename
-        }
-      }
     }
   `;
 
@@ -188,13 +175,11 @@ async function queryWithMinimalFields(accessToken: string, limit: number): Promi
   const typedData = data as {
     lineage_nodes?: { items?: Array<Record<string, unknown>> };
     lineage_edges?: { items?: Array<Record<string, unknown>> };
-    lineage_summary?: { items?: Array<Record<string, unknown>> };
   };
 
   return {
     lineage_nodes: typedData.lineage_nodes?.items || [],
     lineage_edges: typedData.lineage_edges?.items || [],
-    lineage_summary: typedData.lineage_summary?.items || [],
   };
 }
 
@@ -219,19 +204,18 @@ serve(async (req) => {
     // First, try to discover the schema using introspection
     console.log('Discovering schema via introspection...');
     
-    const [nodesFields, edgesFields, summaryFields] = await Promise.all([
+    const [nodesFields, edgesFields] = await Promise.all([
       getItemsTypeFields(accessToken, 'lineage_nodes'),
       getItemsTypeFields(accessToken, 'lineage_edges'),
-      getItemsTypeFields(accessToken, 'lineage_summary'),
     ]);
 
-    console.log('Discovered fields:', { nodesFields, edgesFields, summaryFields });
+    console.log('Discovered fields:', { nodesFields, edgesFields });
 
     let response: GraphQLResponse;
 
-    if (nodesFields.length > 0 || edgesFields.length > 0 || summaryFields.length > 0) {
+    if (nodesFields.length > 0 || edgesFields.length > 0) {
       // We found fields via introspection, use them
-      const query = buildDynamicQuery(nodesFields, edgesFields, summaryFields, limit);
+      const query = buildDynamicQuery(nodesFields, edgesFields, limit);
       console.log('Executing dynamic query:', query);
       
       const data = await queryGraphQL(accessToken, query);
@@ -239,13 +223,11 @@ serve(async (req) => {
       const typedData = data as {
         lineage_nodes?: { items?: Array<Record<string, unknown>> };
         lineage_edges?: { items?: Array<Record<string, unknown>> };
-        lineage_summary?: { items?: Array<Record<string, unknown>> };
       };
 
       response = {
         lineage_nodes: typedData.lineage_nodes?.items || [],
         lineage_edges: typedData.lineage_edges?.items || [],
-        lineage_summary: typedData.lineage_summary?.items || [],
       };
     } else {
       // Fallback: try minimal query to at least get __typename
