@@ -8,6 +8,11 @@ const corsHeaders = {
 interface GraphQLResponse {
   lineage_nodes: Array<Record<string, unknown>>;
   lineage_edges: Array<Record<string, unknown>>;
+  pagination_info: {
+    total_records: number;
+    pages_fetched: number;
+    batch_size: number;
+  };
 }
 
 async function getAccessToken(): Promise<string> {
@@ -107,7 +112,13 @@ function buildSimpleCursorQuery(first: number, after?: string): string {
   `;
 }
 
-async function fetchAllLineageNodes(accessToken: string, batchSize: number = 100000): Promise<Array<Record<string, unknown>>> {
+interface FetchResult {
+  nodes: Array<Record<string, unknown>>;
+  pagesCount: number;
+  batchSize: number;
+}
+
+async function fetchAllLineageNodes(accessToken: string, batchSize: number = 100000): Promise<FetchResult> {
   const allNodes: Array<Record<string, unknown>> = [];
   let cursor: string | undefined = undefined;
   let hasNextPage = true;
@@ -177,7 +188,7 @@ async function fetchAllLineageNodes(accessToken: string, batchSize: number = 100
   }
 
   console.log(`Total records extracted: ${allNodes.length}`);
-  return allNodes;
+  return { nodes: allNodes, pagesCount: pageCount, batchSize };
 }
 
 serve(async (req) => {
@@ -200,12 +211,17 @@ serve(async (req) => {
 
     // Fetch ALL records using cursor-based pagination
     console.log('Starting full extraction of lineage_nodes...');
-    const allNodes = await fetchAllLineageNodes(accessToken, limit);
-    console.log(`Total records extracted: ${allNodes.length}`);
+    const result = await fetchAllLineageNodes(accessToken, limit);
+    console.log(`Total records extracted: ${result.nodes.length}`);
 
     const response: GraphQLResponse = {
-      lineage_nodes: allNodes,
+      lineage_nodes: result.nodes,
       lineage_edges: [],
+      pagination_info: {
+        total_records: result.nodes.length,
+        pages_fetched: result.pagesCount,
+        batch_size: result.batchSize,
+      },
     };
 
     return new Response(
