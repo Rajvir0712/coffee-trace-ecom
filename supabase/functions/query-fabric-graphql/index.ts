@@ -78,8 +78,25 @@ async function queryGraphQL(accessToken: string, query: string): Promise<unknown
   return result.data;
 }
 
+function buildQueryWithOffset(first: number = 1000, offset: number = 0): string {
+  // Try offset-based pagination if cursor doesn't work
+  // Some GraphQL APIs support skip/offset parameter
+  return `
+    query {
+      lineage_nodes(first: ${first}, skip: ${offset}) {
+        items {
+          sale_contract
+        }
+        endCursor
+        hasNextPage
+      }
+    }
+  `;
+}
+
 function buildQuery(first: number = 1000, after?: string): string {
   const afterClause = after ? `, after: "${after}"` : '';
+  // Only request sale_contract since that's what's confirmed to exist
   return `
     query {
       lineage_nodes(first: ${first}${afterClause}) {
@@ -98,11 +115,12 @@ async function fetchAllLineageNodes(accessToken: string, batchSize: number = 100
   let hasNextPage = true;
   let cursor: string | undefined = undefined;
   let pageCount = 0;
+  const maxPages = 1000; // Safety limit - up to 1M records with 1000 batch size
 
-  while (hasNextPage) {
+  while (hasNextPage && pageCount < maxPages) {
     pageCount++;
     const query = buildQuery(batchSize, cursor);
-    console.log(`Fetching page ${pageCount}...`);
+    console.log(`Fetching page ${pageCount}, cursor: ${cursor ? cursor.substring(0, 50) + '...' : 'none'}`);
     
     const data = await queryGraphQL(accessToken, query) as {
       lineage_nodes?: {
@@ -115,12 +133,28 @@ async function fetchAllLineageNodes(accessToken: string, batchSize: number = 100
     const items = data.lineage_nodes?.items || [];
     allNodes.push(...items);
 
+    const prevCursor = cursor;
     hasNextPage = data.lineage_nodes?.hasNextPage ?? false;
     cursor = data.lineage_nodes?.endCursor;
 
     console.log(`Page ${pageCount}: fetched ${items.length} records, total: ${allNodes.length}, hasNextPage: ${hasNextPage}`);
+
+    // Break if cursor didn't change OR if we got 0 items (prevent infinite loop)
+    if (items.length === 0) {
+      console.log('No more items returned, stopping pagination');
+      break;
+    }
+    if (hasNextPage && cursor === prevCursor) {
+      console.log('WARNING: Cursor did not change, breaking to prevent infinite loop');
+      break;
+    }
   }
 
+  if (pageCount >= maxPages) {
+    console.log(`WARNING: Reached max pages limit (${maxPages})`);
+  }
+
+  console.log(`Total records extracted: ${allNodes.length}`);
   return allNodes;
 }
 
@@ -137,8 +171,7 @@ serve(async (req) => {
       );
     }
 
-    // Parse request (limit is now batch size for pagination)
-    const { limit = 1000 }: QueryRequest = await req.json();
+    const { limit = 1000 }: { limit?: number } = await req.json();
 
     // Get access token using Service Principal
     const accessToken = await getAccessToken();
