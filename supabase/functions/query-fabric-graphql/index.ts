@@ -5,11 +5,6 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-interface QueryRequest {
-  sales_contract?: string;
-  limit?: number;
-}
-
 interface GraphQLResponse {
   lineage_nodes: Array<Record<string, unknown>>;
   lineage_edges: Array<Record<string, unknown>>;
@@ -78,14 +73,15 @@ async function queryGraphQL(accessToken: string, query: string): Promise<unknown
   return result.data;
 }
 
-function buildQueryWithOffset(first: number = 1000, offset: number = 0): string {
-  // Try offset-based pagination if cursor doesn't work
-  // Some GraphQL APIs support skip/offset parameter
+// Build cursor-based query with ordering for consistent pagination
+function buildCursorQuery(first: number, after?: string): string {
+  const afterClause = after ? `, after: "${after}"` : '';
   return `
     query {
-      lineage_nodes(first: ${first}, skip: ${offset}) {
+      lineage_nodes(first: ${first}${afterClause}, orderBy: {sale_contract: ASC}) {
         items {
           sale_contract
+          lot_no
         }
         endCursor
         hasNextPage
@@ -94,42 +90,15 @@ function buildQueryWithOffset(first: number = 1000, offset: number = 0): string 
   `;
 }
 
-function buildIntrospectionQuery(): string {
-  return `
-    query {
-      __type(name: "lineage_nodes") {
-        fields {
-          name
-        }
-      }
-    }
-  `;
-}
-
-function buildFieldDiscoveryQuery(): string {
-  // Fabric GraphQL uses a specific introspection pattern
-  return `
-    query IntrospectionQuery {
-      __schema {
-        types {
-          name
-          fields {
-            name
-          }
-        }
-      }
-    }
-  `;
-}
-
-function buildQuery(first: number = 1000, after?: string, fields: string[] = ['sale_contract']): string {
+// Fallback query without orderBy if it's not supported
+function buildSimpleCursorQuery(first: number, after?: string): string {
   const afterClause = after ? `, after: "${after}"` : '';
-  const fieldList = fields.join('\n          ');
   return `
     query {
       lineage_nodes(first: ${first}${afterClause}) {
         items {
-          ${fieldList}
+          sale_contract
+          lot_no
         }
         endCursor
         hasNextPage
@@ -138,66 +107,42 @@ function buildQuery(first: number = 1000, after?: string, fields: string[] = ['s
   `;
 }
 
-async function getTableFields(accessToken: string): Promise<string[]> {
-  const query = buildIntrospectionQuery();
-  const data = await queryGraphQL(accessToken, query) as {
-    __type?: {
-      fields?: Array<{ name: string }>;
-    };
-  };
-
-  const fields = data.__type?.fields?.map(f => f.name) || [];
-  // Filter out pagination/metadata fields
-  const excludeFields = ['endCursor', 'hasNextPage', 'items'];
-  return fields.filter(f => !excludeFields.includes(f));
-}
-
-async function discoverFields(accessToken: string): Promise<string[]> {
-  // Try to discover the actual field names from the schema
-  try {
-    const query = buildFieldDiscoveryQuery();
-    const data = await queryGraphQL(accessToken, query) as {
-      __schema?: {
-        types?: Array<{ name: string; fields?: Array<{ name: string }> }>;
-      };
-    };
-
-    const lineageNodesType = data.__schema?.types?.find(t => t.name === 'lineage_nodes');
-    if (lineageNodesType?.fields) {
-      const fields = lineageNodesType.fields.map(f => f.name);
-      console.log(`Discovered fields: ${fields.join(', ')}`);
-      return fields;
-    }
-  } catch (err) {
-    console.log('Schema introspection failed:', err);
-  }
-  return ['sale_contract']; // Fallback
-}
-
-async function fetchAllLineageNodes(accessToken: string, batchSize: number = 1000): Promise<Array<Record<string, unknown>>> {
-  // Discover available fields from the schema
-  console.log('Discovering schema fields...');
-  const fields = await discoverFields(accessToken);
-  console.log(`Using ${fields.length} fields: ${fields.join(', ')}`);
-
+async function fetchAllLineageNodes(accessToken: string, batchSize: number = 100000): Promise<Array<Record<string, unknown>>> {
   const allNodes: Array<Record<string, unknown>> = [];
-  let hasNextPage = true;
   let cursor: string | undefined = undefined;
+  let hasNextPage = true;
   let pageCount = 0;
-  const maxPages = 1000; // Safety limit - up to 1M records with 1000 batch size
+  const maxPages = 10000; // Safety limit
+  let useOrderBy = true;
 
   while (hasNextPage && pageCount < maxPages) {
     pageCount++;
-    const query = buildQuery(batchSize, cursor, fields);
+    
+    // Try with orderBy first, fall back to simple query if it fails
+    let query = useOrderBy ? buildCursorQuery(batchSize, cursor) : buildSimpleCursorQuery(batchSize, cursor);
     console.log(`Fetching page ${pageCount}, cursor: ${cursor ? cursor.substring(0, 50) + '...' : 'none'}`);
     
-    const data = await queryGraphQL(accessToken, query) as {
+    let data: {
       lineage_nodes?: {
         items?: Array<Record<string, unknown>>;
         endCursor?: string;
         hasNextPage?: boolean;
       };
     };
+
+    try {
+      data = await queryGraphQL(accessToken, query) as typeof data;
+    } catch (err) {
+      if (useOrderBy && pageCount === 1) {
+        // If orderBy fails on first try, switch to simple query
+        console.log('orderBy not supported, falling back to simple cursor query');
+        useOrderBy = false;
+        query = buildSimpleCursorQuery(batchSize, cursor);
+        data = await queryGraphQL(accessToken, query) as typeof data;
+      } else {
+        throw err;
+      }
+    }
 
     const items = data.lineage_nodes?.items || [];
     allNodes.push(...items);
@@ -208,13 +153,21 @@ async function fetchAllLineageNodes(accessToken: string, batchSize: number = 100
 
     console.log(`Page ${pageCount}: fetched ${items.length} records, total: ${allNodes.length}, hasNextPage: ${hasNextPage}`);
 
-    // Break if cursor didn't change OR if we got 0 items (prevent infinite loop)
+    // Stop conditions
     if (items.length === 0) {
-      console.log('No more items returned, stopping pagination');
+      console.log('No more items returned, reached end of data');
       break;
     }
+    
+    // Break if cursor didn't advance (prevent infinite loop)
     if (hasNextPage && cursor === prevCursor) {
-      console.log('WARNING: Cursor did not change, breaking to prevent infinite loop');
+      console.log('WARNING: Cursor unchanged, stopping to prevent infinite loop');
+      break;
+    }
+    
+    // If hasNextPage is false, we're done
+    if (!hasNextPage) {
+      console.log('hasNextPage is false, extraction complete');
       break;
     }
   }
@@ -245,7 +198,7 @@ serve(async (req) => {
     // Get access token using Service Principal
     const accessToken = await getAccessToken();
 
-    // Fetch ALL records using pagination
+    // Fetch ALL records using cursor-based pagination
     console.log('Starting full extraction of lineage_nodes...');
     const allNodes = await fetchAllLineageNodes(accessToken, limit);
     console.log(`Total records extracted: ${allNodes.length}`);
