@@ -96,12 +96,25 @@ function buildQueryWithOffset(first: number = 1000, offset: number = 0): string 
 
 function buildQuery(first: number = 1000, after?: string): string {
   const afterClause = after ? `, after: "${after}"` : '';
-  // Only request sale_contract since that's what's confirmed to exist
   return `
     query {
       lineage_nodes(first: ${first}${afterClause}) {
         items {
           sale_contract
+          lot_no
+          process_type
+          item_no
+          description
+          quantity
+          date
+          location_code
+          counterparty
+          prod_order_no
+          lot_dest
+          vendor_name
+          document_no
+          node_type
+          source_table
         }
         endCursor
         hasNextPage
