@@ -91,7 +91,7 @@ export interface GraphQLLineageData {
   lineage_edges: Array<Record<string, unknown>>;
 }
 
-export async function queryFabricGraphQL(salesContract?: string, limit: number = 20): Promise<GraphQLLineageData> {
+export async function queryFabricGraphQL(salesContract?: string, limit: number = 10000): Promise<GraphQLLineageData> {
   try {
     const { data, error } = await supabase.functions.invoke('query-fabric-graphql', {
       body: { sales_contract: salesContract, limit },
