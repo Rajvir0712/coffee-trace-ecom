@@ -160,8 +160,7 @@ export function isTerminalStatus(status: JobStatus): boolean {
 export async function runLineageTraceWithPolling(
   salesContract: string,
   onStatusChange: (status: JobStatus, message: string) => void,
-  pollIntervalMs: number = 5000,
-  maxPollAttempts: number = 120 // 10 minutes max
+  pollIntervalMs: number = 5000
 ): Promise<JobStatusResponse> {
   // Trigger the notebook
   onStatusChange('Queued', 'Triggering notebook...');
@@ -174,11 +173,9 @@ export async function runLineageTraceWithPolling(
   const jobId = triggerResult.job_id;
   onStatusChange('Queued', `Job queued: ${jobId}`);
 
-  // Poll for completion
-  let attempts = 0;
-  while (attempts < maxPollAttempts) {
+  // Poll for completion (no timeout - runs until terminal state)
+  while (true) {
     await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
-    attempts++;
 
     const statusResult = await checkJobStatus(jobId);
     const mappedStatus = mapJobStatus(statusResult.status);
@@ -197,6 +194,4 @@ export async function runLineageTraceWithPolling(
       throw new Error('Notebook job was cancelled');
     }
   }
-
-  throw new Error('Polling timeout: Job did not complete in time');
 }
