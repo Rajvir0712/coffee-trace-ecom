@@ -3,7 +3,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { RefreshCw, Database, AlertCircle } from "lucide-react";
+import { RefreshCw, Database, AlertCircle, Download } from "lucide-react";
+import * as XLSX from "xlsx";
 
 export interface GraphQLLineageData {
   lineage_nodes: Array<Record<string, unknown>>;
@@ -86,6 +87,30 @@ function LoadingSkeleton() {
   );
 }
 
+function downloadAsExcel(data: Array<Record<string, unknown>>, filename: string) {
+  if (data.length === 0) return;
+  
+  // Flatten any nested objects for Excel compatibility
+  const flatData = data.map(row => {
+    const flatRow: Record<string, string | number | boolean | null> = {};
+    for (const [key, value] of Object.entries(row)) {
+      if (value === null || value === undefined) {
+        flatRow[key] = null;
+      } else if (typeof value === 'object') {
+        flatRow[key] = JSON.stringify(value);
+      } else {
+        flatRow[key] = value as string | number | boolean;
+      }
+    }
+    return flatRow;
+  });
+
+  const worksheet = XLSX.utils.json_to_sheet(flatData);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Data");
+  XLSX.writeFile(workbook, `${filename}.xlsx`);
+}
+
 export function GraphQLDataPreview({ data, isLoading, error, onRefresh }: GraphQLDataPreviewProps) {
   if (error) {
     return (
@@ -110,7 +135,7 @@ export function GraphQLDataPreview({ data, isLoading, error, onRefresh }: GraphQ
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
-        <div>
+        <div className="flex items-center gap-2">
           <CardTitle className="flex items-center gap-2">
             <Database className="w-5 h-5" />
             Lineage Data Preview
@@ -119,10 +144,22 @@ export function GraphQLDataPreview({ data, isLoading, error, onRefresh }: GraphQ
             Data from Fabric Lakehouse GraphQL API
           </CardDescription>
         </div>
-        <Button variant="outline" size="sm" onClick={onRefresh} disabled={isLoading}>
-          <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          {data && data.lineage_nodes.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => downloadAsExcel(data.lineage_nodes, 'lineage_nodes')}
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Download Excel
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={onRefresh} disabled={isLoading}>
+            <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+        </div>
       </CardHeader>
       <CardContent>
         {isLoading ? (
