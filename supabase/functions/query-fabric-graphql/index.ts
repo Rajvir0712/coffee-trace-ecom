@@ -78,6 +78,31 @@ async function queryGraphQL(accessToken: string, query: string): Promise<unknown
   return result.data;
 }
 
+// All fields to extract
+const LINEAGE_NODE_FIELDS = `
+  sale_contract
+  lot_no
+  parent_lot
+  depth
+  path
+  status
+  process_types
+  is_terminal
+  terminal_reason
+  relationship
+  item_no
+  description
+  certified
+  unit_of_measure
+  production_order
+  output_quantity
+  output_date
+  purchase_quantity
+  purchase_date
+  trace_complete
+  trace_timestamp
+`;
+
 // Build cursor-based query with ordering for consistent pagination
 function buildCursorQuery(first: number, after?: string): string {
   const afterClause = after ? `, after: "${after}"` : '';
@@ -85,8 +110,7 @@ function buildCursorQuery(first: number, after?: string): string {
     query {
       lineage_nodes(first: ${first}${afterClause}, orderBy: {sale_contract: ASC}) {
         items {
-          sale_contract
-          lot_no
+          ${LINEAGE_NODE_FIELDS}
         }
         endCursor
         hasNextPage
@@ -102,8 +126,7 @@ function buildSimpleCursorQuery(first: number, after?: string): string {
     query {
       lineage_nodes(first: ${first}${afterClause}) {
         items {
-          sale_contract
-          lot_no
+          ${LINEAGE_NODE_FIELDS}
         }
         endCursor
         hasNextPage
