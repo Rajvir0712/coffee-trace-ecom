@@ -17,7 +17,7 @@ import { CoffeeLotLineageTracker, LineageResult, LotStatistics } from "@/lib/exc
 import { CocoaTracker, CocoaRecord } from "@/lib/cocoaParser";
 import { CocoaViewer } from "@/components/CocoaViewer";
 import { analyzeVLOOKUPStructure } from "@/lib/analyzeVLOOKUP";
-import { triggerLineageTrace, checkJobStatus, mapJobStatus, queryFabricGraphQL, JobStatus, GraphQLLineageData } from "@/lib/fabricApi";
+import { triggerLineageTrace, checkJobStatus, mapJobStatus, JobStatus } from "@/lib/fabricApi";
 import { GraphQLDataPreview } from "@/components/GraphQLDataPreview";
 import { toast } from "sonner";
 import { Coffee, TrendingUp, Package, Calendar, Loader2, Maximize2, Minimize2, Download, Cloud, FileSpreadsheet } from "lucide-react";
@@ -51,10 +51,8 @@ const Index = () => {
   const [fabricStatusMessage, setFabricStatusMessage] = useState("");
   const [isFabricTriggering, setIsFabricTriggering] = useState(false);
   
-  // GraphQL data state
-  const [graphqlData, setGraphqlData] = useState<GraphQLLineageData | null>(null);
-  const [isGraphqlLoading, setIsGraphqlLoading] = useState(false);
-  const [graphqlError, setGraphqlError] = useState<string | null>(null);
+  // GraphQL data preview visibility
+  const [showGraphqlPreview, setShowGraphqlPreview] = useState(false);
 
   const toText = (value: unknown): string => {
     if (typeof value === "string") return value;
@@ -241,8 +239,8 @@ const Index = () => {
 
         if (mappedStatus === 'Succeeded') {
           toast.success("Fabric notebook completed successfully!");
-          // Auto-fetch GraphQL data after job succeeds
-          fetchGraphQLData(fabricSalesContract);
+          // Show the GraphQL data preview (it will auto-fetch)
+          setShowGraphqlPreview(true);
           return;
         }
 
@@ -267,27 +265,6 @@ const Index = () => {
 
     // Start polling after a short delay
     setTimeout(poll, pollInterval);
-  };
-
-  // Fetch GraphQL data from Fabric Lakehouse
-  const fetchGraphQLData = async (salesContract?: string) => {
-    setIsGraphqlLoading(true);
-    setGraphqlError(null);
-    
-    try {
-      const data = await queryFabricGraphQL(salesContract);
-      setGraphqlData(data);
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Failed to fetch data';
-      setGraphqlError(errorMsg);
-      toast.error(errorMsg);
-    } finally {
-      setIsGraphqlLoading(false);
-    }
-  };
-
-  const handleRefreshGraphQL = () => {
-    fetchGraphQLData(fabricSalesContract || undefined);
   };
 
   const handleExportLastStep = () => {
@@ -762,14 +739,9 @@ const Index = () => {
                 </CardContent>
               </Card>
               
-              {/* GraphQL Data Preview - shown after job success or when data exists */}
-              {(fabricJobStatus === 'Succeeded' || graphqlData || isGraphqlLoading || graphqlError) && (
-                <GraphQLDataPreview
-                  data={graphqlData}
-                  isLoading={isGraphqlLoading}
-                  error={graphqlError}
-                  onRefresh={handleRefreshGraphQL}
-                />
+              {/* GraphQL Data Preview - shown after job success */}
+              {showGraphqlPreview && (
+                <GraphQLDataPreview autoFetch={true} />
               )}
               </>
             )}

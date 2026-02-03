@@ -8,10 +8,11 @@ const corsHeaders = {
 interface GraphQLResponse {
   lineage_nodes: Array<Record<string, unknown>>;
   lineage_edges: Array<Record<string, unknown>>;
-  pagination_info: {
-    total_records: number;
-    pages_fetched: number;
-    batch_size: number;
+  pagination: {
+    page_size: number;
+    record_count: number;
+    end_cursor: string | null;
+    has_next_page: boolean;
   };
 }
 
@@ -135,83 +136,41 @@ function buildSimpleCursorQuery(first: number, after?: string): string {
   `;
 }
 
-interface FetchResult {
+interface PageResult {
   nodes: Array<Record<string, unknown>>;
-  pagesCount: number;
-  batchSize: number;
+  endCursor: string | null;
+  hasNextPage: boolean;
 }
 
-async function fetchAllLineageNodes(accessToken: string, batchSize: number = 100000): Promise<FetchResult> {
-  const allNodes: Array<Record<string, unknown>> = [];
-  let cursor: string | undefined = undefined;
-  let hasNextPage = true;
-  let pageCount = 0;
-  const maxPages = 10000; // Safety limit
+async function fetchSinglePage(accessToken: string, pageSize: number, cursor?: string): Promise<PageResult> {
   let useOrderBy = true;
-
-  while (hasNextPage && pageCount < maxPages) {
-    pageCount++;
-    
-    // Try with orderBy first, fall back to simple query if it fails
-    let query = useOrderBy ? buildCursorQuery(batchSize, cursor) : buildSimpleCursorQuery(batchSize, cursor);
-    console.log(`Fetching page ${pageCount}, cursor: ${cursor ? cursor.substring(0, 50) + '...' : 'none'}`);
-    
-    let data: {
-      lineage_nodes?: {
-        items?: Array<Record<string, unknown>>;
-        endCursor?: string;
-        hasNextPage?: boolean;
-      };
+  let query = buildCursorQuery(pageSize, cursor);
+  
+  let data: {
+    lineage_nodes?: {
+      items?: Array<Record<string, unknown>>;
+      endCursor?: string;
+      hasNextPage?: boolean;
     };
+  };
 
-    try {
-      data = await queryGraphQL(accessToken, query) as typeof data;
-    } catch (err) {
-      if (useOrderBy && pageCount === 1) {
-        // If orderBy fails on first try, switch to simple query
-        console.log('orderBy not supported, falling back to simple cursor query');
-        useOrderBy = false;
-        query = buildSimpleCursorQuery(batchSize, cursor);
-        data = await queryGraphQL(accessToken, query) as typeof data;
-      } else {
-        throw err;
-      }
-    }
-
-    const items = data.lineage_nodes?.items || [];
-    allNodes.push(...items);
-
-    const prevCursor = cursor;
-    hasNextPage = data.lineage_nodes?.hasNextPage ?? false;
-    cursor = data.lineage_nodes?.endCursor;
-
-    console.log(`Page ${pageCount}: fetched ${items.length} records, total: ${allNodes.length}, hasNextPage: ${hasNextPage}`);
-
-    // Stop conditions
-    if (items.length === 0) {
-      console.log('No more items returned, reached end of data');
-      break;
-    }
-    
-    // Break if cursor didn't advance (prevent infinite loop)
-    if (hasNextPage && cursor === prevCursor) {
-      console.log('WARNING: Cursor unchanged, stopping to prevent infinite loop');
-      break;
-    }
-    
-    // If hasNextPage is false, we're done
-    if (!hasNextPage) {
-      console.log('hasNextPage is false, extraction complete');
-      break;
-    }
+  try {
+    data = await queryGraphQL(accessToken, query) as typeof data;
+  } catch (err) {
+    // If orderBy fails, switch to simple query
+    console.log('orderBy not supported, falling back to simple cursor query');
+    useOrderBy = false;
+    query = buildSimpleCursorQuery(pageSize, cursor);
+    data = await queryGraphQL(accessToken, query) as typeof data;
   }
 
-  if (pageCount >= maxPages) {
-    console.log(`WARNING: Reached max pages limit (${maxPages})`);
-  }
+  const items = data.lineage_nodes?.items || [];
+  const endCursor = data.lineage_nodes?.endCursor || null;
+  const hasNextPage = data.lineage_nodes?.hasNextPage ?? false;
 
-  console.log(`Total records extracted: ${allNodes.length}`);
-  return { nodes: allNodes, pagesCount: pageCount, batchSize };
+  console.log(`Fetched ${items.length} records, hasNextPage: ${hasNextPage}`);
+  
+  return { nodes: items, endCursor, hasNextPage };
 }
 
 serve(async (req) => {
@@ -227,23 +186,23 @@ serve(async (req) => {
       );
     }
 
-    const { limit = 1000 }: { limit?: number } = await req.json();
+    const { pageSize = 10000, cursor }: { pageSize?: number; cursor?: string } = await req.json();
 
     // Get access token using Service Principal
     const accessToken = await getAccessToken();
 
-    // Fetch ALL records using cursor-based pagination
-    console.log('Starting full extraction of lineage_nodes...');
-    const result = await fetchAllLineageNodes(accessToken, limit);
-    console.log(`Total records extracted: ${result.nodes.length}`);
+    // Fetch single page of records
+    console.log(`Fetching page with size ${pageSize}, cursor: ${cursor || 'none'}`);
+    const result = await fetchSinglePage(accessToken, pageSize, cursor);
 
     const response: GraphQLResponse = {
       lineage_nodes: result.nodes,
       lineage_edges: [],
-      pagination_info: {
-        total_records: result.nodes.length,
-        pages_fetched: result.pagesCount,
-        batch_size: result.batchSize,
+      pagination: {
+        page_size: pageSize,
+        record_count: result.nodes.length,
+        end_cursor: result.endCursor,
+        has_next_page: result.hasNextPage,
       },
     };
 
