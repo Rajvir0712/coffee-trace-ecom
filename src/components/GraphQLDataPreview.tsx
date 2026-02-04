@@ -31,7 +31,7 @@ function DataTable({ data, tableName }: { data: Array<Record<string, unknown>>; 
   const columns = Object.keys(data[0]);
 
   return (
-    <div className="rounded-md border overflow-auto max-h-[600px] w-full">
+    <div className="rounded-md border overflow-auto h-[calc(100vh-400px)] min-h-[400px] w-full">
       <Table>
         <TableHeader className="sticky top-0 bg-background z-10">
           <TableRow>
@@ -200,8 +200,8 @@ export function GraphQLDataPreview({ autoFetch = true }: GraphQLDataPreviewProps
   const hasPrevPage = currentPage > 1;
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
+    <Card className="w-full flex-1 flex flex-col">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4 flex-shrink-0">
         <div className="flex flex-col gap-1">
           <CardTitle className="flex items-center gap-2">
             <Database className="w-5 h-5" />
