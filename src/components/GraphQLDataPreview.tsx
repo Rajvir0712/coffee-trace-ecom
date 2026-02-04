@@ -31,7 +31,7 @@ function DataTable({ data, tableName }: { data: Array<Record<string, unknown>>; 
   const columns = Object.keys(data[0]);
 
   return (
-    <div className="rounded-md border overflow-auto max-h-[400px]">
+    <div className="rounded-md border overflow-auto max-h-[600px] w-full">
       <Table>
         <TableHeader className="sticky top-0 bg-background z-10">
           <TableRow>
