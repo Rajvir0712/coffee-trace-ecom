@@ -220,19 +220,26 @@ export function GraphQLDataPreview({ autoFetch = true }: GraphQLDataPreviewProps
             {isFetchingAll ? (
               <span className="flex items-center gap-2">
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Fetching page {fetchProgress.currentPage}... {fetchProgress.totalRecords.toLocaleString()} records loaded
+                Fetching page {fetchProgress.currentPage}...
               </span>
             ) : fetchProgress.isComplete ? (
               <span className="flex items-center gap-2 text-green-600 dark:text-green-400">
                 <CheckCircle2 className="w-4 h-4" />
-                Complete • {allNodes.length.toLocaleString()} records from {fetchProgress.currentPage} page{fetchProgress.currentPage > 1 ? 's' : ''}
+                Complete • {fetchProgress.currentPage} page{fetchProgress.currentPage > 1 ? 's' : ''} fetched
               </span>
             ) : (
               'Loading data from Fabric Lakehouse...'
             )}
           </CardDescription>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-4">
+          {/* Total Records Counter */}
+          <div className="flex flex-col items-end">
+            <span className="text-2xl font-bold text-primary">
+              {fetchProgress.totalRecords.toLocaleString()}
+            </span>
+            <span className="text-xs text-muted-foreground">Total Records</span>
+          </div>
           {fetchProgress.isComplete && allNodes.length > 0 && (
             <Button
               variant="outline"
@@ -240,7 +247,7 @@ export function GraphQLDataPreview({ autoFetch = true }: GraphQLDataPreviewProps
               onClick={handleDownloadAll}
             >
               <Download className="w-4 h-4 mr-2" />
-              Download All ({allNodes.length.toLocaleString()})
+              Download All
             </Button>
           )}
         </div>
