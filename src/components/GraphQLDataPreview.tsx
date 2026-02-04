@@ -1,17 +1,18 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Database, AlertCircle, Download, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
+import { Database, AlertCircle, Download, Loader2, CheckCircle2 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { supabase } from "@/integrations/supabase/client";
 
-interface PageData {
-  nodes: Array<Record<string, unknown>>;
-  endCursor: string | null;
-  hasNextPage: boolean;
+interface FetchProgress {
+  currentPage: number;
+  totalRecords: number;
+  isComplete: boolean;
 }
 
 interface GraphQLDataPreviewProps {
@@ -111,71 +112,84 @@ function downloadAsExcel(data: Array<Record<string, unknown>>, filename: string)
 const PAGE_SIZE = 10000;
 
 export function GraphQLDataPreview({ autoFetch = true }: GraphQLDataPreviewProps) {
-  const [pages, setPages] = useState<Map<number, PageData>>(new Map());
-  const [currentPage, setCurrentPage] = useState(1);
-  const [isLoading, setIsLoading] = useState(false);
+  const [allNodes, setAllNodes] = useState<Array<Record<string, unknown>>>([]);
+  const [isFetchingAll, setIsFetchingAll] = useState(false);
+  const [fetchProgress, setFetchProgress] = useState<FetchProgress>({
+    currentPage: 0,
+    totalRecords: 0,
+    isComplete: false,
+  });
   const [error, setError] = useState<string | null>(null);
+  const abortRef = useRef(false);
 
-  const currentPageData = pages.get(currentPage);
-
-  const fetchPage = useCallback(async (pageNum: number, cursor?: string) => {
-    setIsLoading(true);
+  const fetchAllPages = useCallback(async () => {
+    setIsFetchingAll(true);
     setError(null);
+    setAllNodes([]);
+    setFetchProgress({ currentPage: 0, totalRecords: 0, isComplete: false });
+    abortRef.current = false;
+
+    let cursor: string | undefined = undefined;
+    let pageNum = 0;
+    const accumulated: Array<Record<string, unknown>> = [];
 
     try {
-      const { data, error: fnError } = await supabase.functions.invoke('query-fabric-graphql', {
-        body: { pageSize: PAGE_SIZE, cursor }
-      });
+      while (!abortRef.current) {
+        pageNum++;
+        setFetchProgress(prev => ({ ...prev, currentPage: pageNum }));
 
-      if (fnError) throw new Error(fnError.message);
-      if (data.error) throw new Error(data.error);
+        const { data, error: fnError } = await supabase.functions.invoke('query-fabric-graphql', {
+          body: { pageSize: PAGE_SIZE, cursor }
+        });
 
-      const pageData: PageData = {
-        nodes: data.lineage_nodes || [],
-        endCursor: data.pagination?.end_cursor || null,
-        hasNextPage: data.pagination?.has_next_page || false,
-      };
+        if (fnError) throw new Error(fnError.message);
+        if (data.error) throw new Error(data.error);
 
-      setPages(prev => new Map(prev).set(pageNum, pageData));
-      setCurrentPage(pageNum);
+        const nodes = data.lineage_nodes || [];
+        accumulated.push(...nodes);
+        
+        setAllNodes([...accumulated]);
+        setFetchProgress(prev => ({ 
+          ...prev, 
+          totalRecords: accumulated.length 
+        }));
+
+        const hasNextPage = data.pagination?.has_next_page || false;
+        const endCursor = data.pagination?.end_cursor || null;
+
+        // Stop conditions: no more pages OR fewer than PAGE_SIZE records (last page)
+        if (!hasNextPage || nodes.length < PAGE_SIZE) {
+          setFetchProgress(prev => ({ ...prev, isComplete: true }));
+          break;
+        }
+
+        cursor = endCursor;
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch data');
     } finally {
-      setIsLoading(false);
+      setIsFetchingAll(false);
     }
   }, []);
 
-  // Auto-fetch page 1 on mount
+  // Auto-fetch all pages on mount
   useEffect(() => {
-    if (autoFetch && pages.size === 0) {
-      fetchPage(1);
+    if (autoFetch && allNodes.length === 0 && !isFetchingAll && !fetchProgress.isComplete) {
+      fetchAllPages();
     }
-  }, [autoFetch, fetchPage, pages.size]);
+  }, [autoFetch, fetchAllPages, allNodes.length, isFetchingAll, fetchProgress.isComplete]);
 
-  const handleNextPage = () => {
-    const nextPageNum = currentPage + 1;
-    const existingPage = pages.get(nextPageNum);
-    
-    if (existingPage) {
-      setCurrentPage(nextPageNum);
-    } else if (currentPageData?.hasNextPage && currentPageData.endCursor) {
-      fetchPage(nextPageNum, currentPageData.endCursor);
+  const handleDownloadAll = () => {
+    if (allNodes.length > 0) {
+      downloadAsExcel(allNodes, `lineage_nodes_all_${allNodes.length}_records`);
     }
   };
 
-  const handlePrevPage = () => {
-    if (currentPage > 1) {
-      setCurrentPage(currentPage - 1);
-    }
+  const handleRetry = () => {
+    fetchAllPages();
   };
 
-  const handleDownloadCurrentPage = () => {
-    if (currentPageData?.nodes) {
-      downloadAsExcel(currentPageData.nodes, `lineage_nodes_page_${currentPage}`);
-    }
-  };
-
-  if (error && pages.size === 0) {
+  if (error && allNodes.length === 0) {
     return (
       <Card className="border-destructive/50">
         <CardHeader>
@@ -186,18 +200,13 @@ export function GraphQLDataPreview({ autoFetch = true }: GraphQLDataPreviewProps
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground mb-4">{error}</p>
-          <Button variant="outline" size="sm" onClick={() => fetchPage(1)}>
+          <Button variant="outline" size="sm" onClick={handleRetry}>
             Retry
           </Button>
         </CardContent>
       </Card>
     );
   }
-
-  const startRow = (currentPage - 1) * PAGE_SIZE + 1;
-  const endRow = startRow + (currentPageData?.nodes.length || 0) - 1;
-  const hasNextPage = currentPageData?.hasNextPage || pages.has(currentPage + 1);
-  const hasPrevPage = currentPage > 1;
 
   return (
     <Card className="w-full flex-1 flex flex-col">
@@ -208,92 +217,75 @@ export function GraphQLDataPreview({ autoFetch = true }: GraphQLDataPreviewProps
             Lineage Data Preview
           </CardTitle>
           <CardDescription>
-            {currentPageData ? (
-              <>
-                Page {currentPage} • Rows {startRow.toLocaleString()} - {endRow.toLocaleString()}
-                {currentPageData.hasNextPage && <span className="text-primary"> • More available</span>}
-              </>
+            {isFetchingAll ? (
+              <span className="flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Fetching page {fetchProgress.currentPage}... {fetchProgress.totalRecords.toLocaleString()} records loaded
+              </span>
+            ) : fetchProgress.isComplete ? (
+              <span className="flex items-center gap-2 text-green-600 dark:text-green-400">
+                <CheckCircle2 className="w-4 h-4" />
+                Complete • {allNodes.length.toLocaleString()} records from {fetchProgress.currentPage} page{fetchProgress.currentPage > 1 ? 's' : ''}
+              </span>
             ) : (
               'Loading data from Fabric Lakehouse...'
             )}
           </CardDescription>
         </div>
         <div className="flex items-center gap-2">
-          {currentPageData && currentPageData.nodes.length > 0 && (
+          {fetchProgress.isComplete && allNodes.length > 0 && (
             <Button
               variant="outline"
               size="sm"
-              onClick={handleDownloadCurrentPage}
+              onClick={handleDownloadAll}
             >
               <Download className="w-4 h-4 mr-2" />
-              Download Page {currentPage}
+              Download All ({allNodes.length.toLocaleString()})
             </Button>
           )}
         </div>
       </CardHeader>
-      <CardContent>
-        {isLoading && pages.size === 0 ? (
-          <LoadingSkeleton />
-        ) : currentPageData ? (
-          <>
-            <Tabs defaultValue="nodes" className="w-full">
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="nodes">
-                  Nodes ({currentPageData.nodes.length.toLocaleString()})
-                </TabsTrigger>
-                <TabsTrigger value="edges" disabled>
-                  Edges (0)
-                </TabsTrigger>
-              </TabsList>
-              <TabsContent value="nodes" className="mt-4">
-                <DataTable data={currentPageData.nodes} tableName="lineage_nodes" />
-              </TabsContent>
-            </Tabs>
-
-            {/* Pagination Controls */}
-            <div className="flex items-center justify-between mt-4 pt-4 border-t">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handlePrevPage}
-                disabled={!hasPrevPage || isLoading}
-              >
-                <ChevronLeft className="w-4 h-4 mr-1" />
-                Previous
-              </Button>
-              
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                {isLoading && (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                )}
-                <span>Page {currentPage}</span>
-                {Array.from(pages.keys()).length > 1 && (
-                  <span className="text-xs">
-                    ({Array.from(pages.keys()).length} pages loaded)
-                  </span>
-                )}
-              </div>
-
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleNextPage}
-                disabled={!hasNextPage || isLoading}
-              >
-                {isLoading ? (
-                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                ) : (
-                  <ChevronRight className="w-4 h-4 mr-1" />
-                )}
-                Next
-              </Button>
-            </div>
-          </>
-        ) : (
-          <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-            <Database className="w-12 h-12 mb-2 opacity-50" />
-            <p>No data loaded yet</p>
+      <CardContent className="flex-1 flex flex-col">
+        {isFetchingAll && (
+          <div className="mb-4">
+            <Progress value={undefined} className="h-2" />
+            <p className="text-xs text-muted-foreground mt-1 text-center">
+              Fetching all pages automatically...
+            </p>
           </div>
+        )}
+
+        {error && allNodes.length > 0 && (
+          <div className="mb-4 p-3 rounded-md bg-destructive/10 border border-destructive/20">
+            <p className="text-sm text-destructive flex items-center gap-2">
+              <AlertCircle className="w-4 h-4" />
+              Error on page {fetchProgress.currentPage}: {error}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {allNodes.length.toLocaleString()} records were fetched before the error.
+            </p>
+            <Button variant="outline" size="sm" className="mt-2" onClick={handleRetry}>
+              Retry from beginning
+            </Button>
+          </div>
+        )}
+
+        {allNodes.length === 0 && !isFetchingAll ? (
+          <LoadingSkeleton />
+        ) : (
+          <Tabs defaultValue="nodes" className="w-full flex-1 flex flex-col">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="nodes">
+                Nodes ({allNodes.length.toLocaleString()})
+              </TabsTrigger>
+              <TabsTrigger value="edges" disabled>
+                Edges (0)
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="nodes" className="mt-4 flex-1">
+              <DataTable data={allNodes} tableName="lineage_nodes" />
+            </TabsContent>
+          </Tabs>
         )}
       </CardContent>
     </Card>
