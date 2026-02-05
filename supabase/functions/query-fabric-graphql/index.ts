@@ -119,11 +119,11 @@ function buildDistinctPagesQuery(first: number): string {
   `;
 }
 
-// Build query filtered by page_info
-function buildPageFilteredQuery(pageInfo: string, first: number): string {
+// Build query filtered by page_info (Int type)
+function buildPageFilteredQuery(pageInfo: number, first: number): string {
   return `
     query {
-      lineage_nodes(filter: { page_info: { eq: "${pageInfo}" } }, first: ${first}) {
+      lineage_nodes(filter: { page_info: { eq: ${pageInfo} } }, first: ${first}) {
         items {
           ${LINEAGE_NODE_FIELDS}
         }
@@ -154,24 +154,24 @@ interface PageResult {
   hasNextPage: boolean;
 }
 
-async function fetchDistinctPages(accessToken: string, maxPages: number = 100000): Promise<string[]> {
+async function fetchDistinctPages(accessToken: string, maxPages: number = 100000): Promise<number[]> {
   const query = buildDistinctPagesQuery(maxPages);
   console.log('Fetching distinct page_info values...');
   
   const data = await queryGraphQL(accessToken, query) as {
     lineage_nodes?: {
-      items?: Array<{ page_info: string; sale_contract: string }>;
+      items?: Array<{ page_info: number; sale_contract: string }>;
     };
   };
 
   const items = data.lineage_nodes?.items || [];
-  const uniquePages = [...new Set(items.map(item => item.page_info).filter(Boolean))];
+  const uniquePages = [...new Set(items.map(item => item.page_info).filter(p => p !== null && p !== undefined))];
   console.log(`Found ${uniquePages.length} distinct page_info values`);
   
   return uniquePages;
 }
 
-async function fetchByPageInfo(accessToken: string, pageInfo: string, pageSize: number): Promise<Array<Record<string, unknown>>> {
+async function fetchByPageInfo(accessToken: string, pageInfo: number, pageSize: number): Promise<Array<Record<string, unknown>>> {
   const query = buildPageFilteredQuery(pageInfo, pageSize);
   
   const data = await queryGraphQL(accessToken, query) as {
