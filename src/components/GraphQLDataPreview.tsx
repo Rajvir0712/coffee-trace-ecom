@@ -25,7 +25,7 @@ interface GraphQLDataPreviewProps {
   autoFetch?: boolean;
 }
 
-const LOT_PAGE_SIZE = 10000; // Records per lot query
+const LOT_PAGE_SIZE = 100000; // Records per lot query
 
 function formatCellValue(value: unknown): string {
   if (value === null || value === undefined) return '-';
