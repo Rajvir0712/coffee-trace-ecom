@@ -294,14 +294,39 @@ export function GraphQLDataPreview({ autoFetch = false }: GraphQLDataPreviewProp
 
         console.log(`[Export] Fetching page ${i + 1}/${pages.length}: ${pageInfo}`);
 
-        const { data, error: fnError } = await supabase.functions.invoke('query-fabric-graphql', {
-          body: { action: 'fetch_by_page', pageInfo, pageSize: LOT_PAGE_SIZE }
-        });
+        // Retry logic with exponential backoff
+        let nodes: Array<Record<string, unknown>> = [];
+        let lastError: Error | null = null;
+        const maxRetries = 3;
 
-        if (fnError) throw new Error(fnError.message);
-        if (data.error) throw new Error(data.error);
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+          try {
+            const { data, error: fnError } = await supabase.functions.invoke('query-fabric-graphql', {
+              body: { action: 'fetch_by_page', pageInfo, pageSize: LOT_PAGE_SIZE }
+            });
 
-        const nodes = data.lineage_nodes || [];
+            if (fnError) throw new Error(fnError.message);
+            if (data.error) throw new Error(data.error);
+
+            nodes = data.lineage_nodes || [];
+            lastError = null;
+            break; // Success, exit retry loop
+          } catch (err) {
+            lastError = err instanceof Error ? err : new Error('Unknown error');
+            console.warn(`[Export] Attempt ${attempt + 1}/${maxRetries} failed for page ${pageInfo}:`, lastError.message);
+            
+            if (attempt < maxRetries - 1) {
+              // Wait before retrying (exponential backoff: 2s, 4s, 8s)
+              const delay = Math.pow(2, attempt + 1) * 1000;
+              console.log(`[Export] Retrying in ${delay / 1000}s...`);
+              await new Promise(resolve => setTimeout(resolve, delay));
+            }
+          }
+        }
+
+        if (lastError) {
+          throw lastError;
+        }
         console.log(`[Export] Page ${pageInfo}: ${nodes.length} records`);
 
         // Append records
