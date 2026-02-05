@@ -104,9 +104,34 @@ const LINEAGE_NODE_FIELDS = `
   trace_timestamp
 `;
 
+// Build query to get distinct lot_no values
+function buildDistinctLotsQuery(first: number): string {
+  return `
+    query {
+      lineage_nodes(first: ${first}) {
+        items {
+          lot_no
+        }
+      }
+    }
+  `;
+}
+
+// Build query filtered by lot_no
+function buildLotFilteredQuery(lotNo: string, first: number): string {
+  return `
+    query {
+      lineage_nodes(filter: { lot_no: { eq: "${lotNo}" } }, first: ${first}) {
+        items {
+          ${LINEAGE_NODE_FIELDS}
+        }
+      }
+    }
+  `;
+}
+
 // Build cursor-based query WITHOUT orderBy (cursor contains ordering state already)
 function buildCursorQuery(first: number, after?: string): string {
-  // Note: Do NOT use orderBy with cursor - cursor already encodes the position
   const afterClause = after ? `, after: "${after}"` : '';
   return `
     query {
@@ -125,6 +150,35 @@ interface PageResult {
   nodes: Array<Record<string, unknown>>;
   endCursor: string | null;
   hasNextPage: boolean;
+}
+
+async function fetchDistinctLots(accessToken: string, maxLots: number = 100000): Promise<string[]> {
+  const query = buildDistinctLotsQuery(maxLots);
+  console.log('Fetching distinct lot_no values...');
+  
+  const data = await queryGraphQL(accessToken, query) as {
+    lineage_nodes?: {
+      items?: Array<{ lot_no: string }>;
+    };
+  };
+
+  const items = data.lineage_nodes?.items || [];
+  const uniqueLots = [...new Set(items.map(item => item.lot_no).filter(Boolean))];
+  console.log(`Found ${uniqueLots.length} distinct lot_no values`);
+  
+  return uniqueLots;
+}
+
+async function fetchByLotNo(accessToken: string, lotNo: string, pageSize: number): Promise<Array<Record<string, unknown>>> {
+  const query = buildLotFilteredQuery(lotNo, pageSize);
+  
+  const data = await queryGraphQL(accessToken, query) as {
+    lineage_nodes?: {
+      items?: Array<Record<string, unknown>>;
+    };
+  };
+
+  return data.lineage_nodes?.items || [];
 }
 
 async function fetchSinglePage(accessToken: string, pageSize: number, cursor?: string): Promise<PageResult> {
@@ -162,12 +216,47 @@ serve(async (req) => {
       );
     }
 
-    const { pageSize = 10000, cursor }: { pageSize?: number; cursor?: string } = await req.json();
+    const body = await req.json();
+    const { 
+      action = 'fetch', // 'fetch' | 'get_lots' | 'fetch_by_lot'
+      pageSize = 10000, 
+      cursor,
+      lotNo 
+    }: { 
+      action?: string;
+      pageSize?: number; 
+      cursor?: string;
+      lotNo?: string;
+    } = body;
 
     // Get access token using Service Principal
     const accessToken = await getAccessToken();
 
-    // Fetch single page of records
+    // Handle different actions
+    if (action === 'get_lots') {
+      // Get distinct lot_no values
+      const lots = await fetchDistinctLots(accessToken, pageSize);
+      return new Response(
+        JSON.stringify({ lots, count: lots.length }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (action === 'fetch_by_lot' && lotNo) {
+      // Fetch records for a specific lot
+      console.log(`Fetching records for lot_no: ${lotNo}`);
+      const nodes = await fetchByLotNo(accessToken, lotNo, pageSize);
+      return new Response(
+        JSON.stringify({ 
+          lineage_nodes: nodes, 
+          lot_no: lotNo,
+          record_count: nodes.length 
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Default: fetch all with pagination (original behavior)
     console.log(`Fetching page with size ${pageSize}, cursor: ${cursor || 'none'}`);
     const result = await fetchSinglePage(accessToken, pageSize, cursor);
 
