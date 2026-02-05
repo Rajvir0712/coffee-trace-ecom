@@ -7,15 +7,15 @@ import { Database, AlertCircle, Download, Loader2, CheckCircle2, XCircle, FileSp
 import * as XLSX from "xlsx";
 import { supabase } from "@/integrations/supabase/client";
 
-interface LotInfo {
-  lotNo: string;
+interface PageInfo {
+  pageInfo: string;
   recordCount: number;
 }
 
 interface ExportProgress {
-  currentLot: string;
-  lotsCompleted: LotInfo[];
-  totalLots: number;
+  currentPage: string;
+  pagesCompleted: PageInfo[];
+  totalPages: number;
   totalRecords: number;
   isComplete: boolean;
   error: string | null;
@@ -106,8 +106,8 @@ function ProgressPanel({
   progress: ExportProgress; 
   onCancel: () => void;
 }) {
-  const percentComplete = progress.totalLots > 0 
-    ? Math.round((progress.lotsCompleted.length / progress.totalLots) * 100) 
+  const percentComplete = progress.totalPages > 0 
+    ? Math.round((progress.pagesCompleted.length / progress.totalPages) * 100) 
     : 0;
 
   return (
@@ -119,23 +119,23 @@ function ProgressPanel({
       
       <div className="mb-4">
         <div className="flex justify-between text-sm text-muted-foreground mb-2">
-          <span>Lot {progress.lotsCompleted.length + 1} of {progress.totalLots}</span>
+          <span>Page {progress.pagesCompleted.length + 1} of {progress.totalPages}</span>
           <span>{percentComplete}%</span>
         </div>
         <Progress value={percentComplete} className="h-2" />
       </div>
       
       <div className="space-y-1 mb-4 max-h-32 overflow-auto">
-        {progress.lotsCompleted.slice(-5).map((lot) => (
-          <div key={lot.lotNo} className="flex items-center gap-2 text-sm">
+        {progress.pagesCompleted.slice(-5).map((page) => (
+          <div key={page.pageInfo} className="flex items-center gap-2 text-sm">
             <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
-            <span className="truncate">{lot.lotNo}: {lot.recordCount.toLocaleString()} records</span>
+            <span className="truncate">Page {page.pageInfo}: {page.recordCount.toLocaleString()} records</span>
           </div>
         ))}
-        {progress.currentLot && (
+        {progress.currentPage && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
-            <span className="truncate">{progress.currentLot}: fetching...</span>
+            <span className="truncate">Page {progress.currentPage}: fetching...</span>
           </div>
         )}
       </div>
@@ -185,14 +185,14 @@ function SuccessPanel({
 
 function ErrorPanel({ 
   error, 
-  currentLot,
+  currentPage,
   totalRecords,
   onRetry, 
   onDownloadPartial,
   onCancel 
 }: { 
   error: string;
-  currentLot: string;
+  currentPage: string;
   totalRecords: number;
   onRetry: () => void;
   onDownloadPartial: () => void;
@@ -206,7 +206,7 @@ function ErrorPanel({
       </div>
       
       <p className="text-sm text-destructive mb-2">
-        Error on lot {currentLot}: {error}
+        Error on page {currentPage}: {error}
       </p>
       <p className="text-sm text-muted-foreground mb-4">
         {totalRecords.toLocaleString()} records fetched before error
@@ -234,9 +234,9 @@ export function GraphQLDataPreview({ autoFetch = false }: GraphQLDataPreviewProp
   const [allRecords, setAllRecords] = useState<Array<Record<string, unknown>>>([]);
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState<ExportProgress>({
-    currentLot: '',
-    lotsCompleted: [],
-    totalLots: 0,
+    currentPage: '',
+    pagesCompleted: [],
+    totalPages: 0,
     totalRecords: 0,
     isComplete: false,
     error: null,
@@ -250,9 +250,9 @@ export function GraphQLDataPreview({ autoFetch = false }: GraphQLDataPreviewProp
     setShowSuccess(false);
     setAllRecords([]);
     setExportProgress({
-      currentLot: '',
-      lotsCompleted: [],
-      totalLots: 0,
+      currentPage: '',
+      pagesCompleted: [],
+      totalPages: 0,
       totalRecords: 0,
       isComplete: false,
       error: null,
@@ -262,47 +262,47 @@ export function GraphQLDataPreview({ autoFetch = false }: GraphQLDataPreviewProp
     const accumulated: Array<Record<string, unknown>> = [];
 
     try {
-      // Step 1: Fetch all distinct lot_no values
-      console.log('[Export] Fetching distinct lot_no values...');
-      setExportProgress(prev => ({ ...prev, currentLot: 'Loading lot list...' }));
+      // Step 1: Fetch all distinct page_info values
+      console.log('[Export] Fetching distinct page_info values...');
+      setExportProgress(prev => ({ ...prev, currentPage: 'Loading page list...' }));
 
-      const { data: lotsData, error: lotsError } = await supabase.functions.invoke('query-fabric-graphql', {
-        body: { action: 'get_lots', pageSize: 100000 }
+      const { data: pagesData, error: pagesError } = await supabase.functions.invoke('query-fabric-graphql', {
+        body: { action: 'get_pages', pageSize: 100000 }
       });
 
-      if (lotsError) throw new Error(lotsError.message);
-      if (lotsData.error) throw new Error(lotsData.error);
+      if (pagesError) throw new Error(pagesError.message);
+      if (pagesData.error) throw new Error(pagesData.error);
 
-      const lots: string[] = lotsData.lots || [];
-      console.log(`[Export] Found ${lots.length} distinct lots`);
+      const pages: string[] = pagesData.pages || [];
+      console.log(`[Export] Found ${pages.length} distinct pages`);
 
-      if (lots.length === 0) {
-        throw new Error('No lots found in the database');
+      if (pages.length === 0) {
+        throw new Error('No pages found in the database');
       }
 
-      setExportProgress(prev => ({ ...prev, totalLots: lots.length }));
+      setExportProgress(prev => ({ ...prev, totalPages: pages.length }));
 
-      // Step 2: Fetch records for each lot
-      for (let i = 0; i < lots.length; i++) {
+      // Step 2: Fetch records for each page
+      for (let i = 0; i < pages.length; i++) {
         if (cancelledRef.current) {
           console.log('[Export] Cancelled by user');
           break;
         }
 
-        const lotNo = lots[i];
-        setExportProgress(prev => ({ ...prev, currentLot: lotNo }));
+        const pageInfo = pages[i];
+        setExportProgress(prev => ({ ...prev, currentPage: pageInfo }));
 
-        console.log(`[Export] Fetching lot ${i + 1}/${lots.length}: ${lotNo}`);
+        console.log(`[Export] Fetching page ${i + 1}/${pages.length}: ${pageInfo}`);
 
         const { data, error: fnError } = await supabase.functions.invoke('query-fabric-graphql', {
-          body: { action: 'fetch_by_lot', lotNo, pageSize: LOT_PAGE_SIZE }
+          body: { action: 'fetch_by_page', pageInfo, pageSize: LOT_PAGE_SIZE }
         });
 
         if (fnError) throw new Error(fnError.message);
         if (data.error) throw new Error(data.error);
 
         const nodes = data.lineage_nodes || [];
-        console.log(`[Export] Lot ${lotNo}: ${nodes.length} records`);
+        console.log(`[Export] Page ${pageInfo}: ${nodes.length} records`);
 
         // Append records
         accumulated.push(...nodes);
@@ -311,7 +311,7 @@ export function GraphQLDataPreview({ autoFetch = false }: GraphQLDataPreviewProp
         // Update progress
         setExportProgress(prev => ({
           ...prev,
-          lotsCompleted: [...prev.lotsCompleted, { lotNo, recordCount: nodes.length }],
+          pagesCompleted: [...prev.pagesCompleted, { pageInfo, recordCount: nodes.length }],
           totalRecords: accumulated.length,
         }));
       }
@@ -412,7 +412,7 @@ export function GraphQLDataPreview({ autoFetch = false }: GraphQLDataPreviewProp
         {exportProgress.error && !isExporting && (
           <ErrorPanel
             error={exportProgress.error}
-            currentLot={exportProgress.currentLot}
+            currentPage={exportProgress.currentPage}
             totalRecords={exportProgress.totalRecords}
             onRetry={exportAllToExcel}
             onDownloadPartial={handleDownloadPartial}
