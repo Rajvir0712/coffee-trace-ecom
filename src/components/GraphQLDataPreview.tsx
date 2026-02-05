@@ -1,30 +1,69 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
-import { Database, AlertCircle, Download, Loader2, CheckCircle2 } from "lucide-react";
+import { Database, AlertCircle, Download, Loader2, CheckCircle2, XCircle, FileSpreadsheet } from "lucide-react";
 import * as XLSX from "xlsx";
 import { supabase } from "@/integrations/supabase/client";
 
-interface FetchProgress {
+interface PageInfo {
+  pageNumber: number;
+  recordCount: number;
+}
+
+interface ExportProgress {
   currentPage: number;
+  pagesCompleted: PageInfo[];
   totalRecords: number;
   isComplete: boolean;
+  error: string | null;
 }
 
 interface GraphQLDataPreviewProps {
   autoFetch?: boolean;
 }
 
-function DataTable({ data, tableName }: { data: Array<Record<string, unknown>>; tableName: string }) {
+const PAGE_SIZE = 10000;
+
+function formatCellValue(value: unknown): string {
+  if (value === null || value === undefined) return '-';
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
+function downloadAsExcel(records: Array<Record<string, unknown>>, tableName: string) {
+  if (records.length === 0) return;
+  
+  const flatData = records.map(row => {
+    const flatRow: Record<string, string | number | boolean | null> = {};
+    for (const [key, value] of Object.entries(row)) {
+      if (value === null || value === undefined) {
+        flatRow[key] = null;
+      } else if (typeof value === 'object') {
+        flatRow[key] = JSON.stringify(value);
+      } else {
+        flatRow[key] = value as string | number | boolean;
+      }
+    }
+    return flatRow;
+  });
+
+  const worksheet = XLSX.utils.json_to_sheet(flatData);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Data");
+  
+  const timestamp = new Date().toISOString().split('T')[0];
+  XLSX.writeFile(workbook, `${tableName}_export_${timestamp}.xlsx`);
+}
+
+function DataTable({ data }: { data: Array<Record<string, unknown>> }) {
   if (data.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
         <Database className="w-12 h-12 mb-2 opacity-50" />
-        <p>No data in {tableName}</p>
+        <p>No data loaded yet. Click "Export All to Excel" to fetch data.</p>
       </div>
     );
   }
@@ -59,154 +98,251 @@ function DataTable({ data, tableName }: { data: Array<Record<string, unknown>>; 
   );
 }
 
-function formatCellValue(value: unknown): string {
-  if (value === null || value === undefined) return '-';
-  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
-  if (typeof value === 'object') return JSON.stringify(value);
-  return String(value);
-}
-
-function LoadingSkeleton() {
+function ProgressPanel({ 
+  progress, 
+  onCancel 
+}: { 
+  progress: ExportProgress; 
+  onCancel: () => void;
+}) {
   return (
-    <div className="space-y-3">
-      <div className="flex gap-2">
-        <Skeleton className="h-8 w-24" />
-        <Skeleton className="h-8 w-24" />
+    <div className="rounded-lg border bg-card p-6 mb-4">
+      <div className="flex items-center gap-2 mb-4">
+        <Loader2 className="w-5 h-5 animate-spin text-primary" />
+        <h3 className="font-semibold text-lg">Exporting Lineage Data...</h3>
       </div>
-      <div className="rounded-md border">
-        <div className="p-4 space-y-3">
-          <Skeleton className="h-6 w-full" />
-          <Skeleton className="h-6 w-full" />
-          <Skeleton className="h-6 w-full" />
-          <Skeleton className="h-6 w-full" />
-          <Skeleton className="h-6 w-3/4" />
+      
+      <div className="mb-4">
+        <p className="text-sm text-muted-foreground mb-2">
+          Page {progress.currentPage} fetching...
+        </p>
+        <Progress value={undefined} className="h-2" />
+      </div>
+      
+      <div className="space-y-1 mb-4 max-h-32 overflow-auto">
+        {progress.pagesCompleted.map((page) => (
+          <div key={page.pageNumber} className="flex items-center gap-2 text-sm">
+            <CheckCircle2 className="w-4 h-4 text-green-500" />
+            <span>Page {page.pageNumber}: {page.recordCount.toLocaleString()} records</span>
+          </div>
+        ))}
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          <span>Page {progress.currentPage}: fetching...</span>
         </div>
+      </div>
+      
+      <div className="flex items-center justify-between">
+        <p className="font-medium">
+          Total: <span className="text-primary">{progress.totalRecords.toLocaleString()}</span> records
+        </p>
+        <Button variant="outline" size="sm" onClick={onCancel}>
+          Cancel Export
+        </Button>
       </div>
     </div>
   );
 }
 
-function downloadAsExcel(data: Array<Record<string, unknown>>, filename: string) {
-  if (data.length === 0) return;
+function SuccessPanel({ 
+  totalRecords, 
+  onExportAgain 
+}: { 
+  totalRecords: number; 
+  onExportAgain: () => void;
+}) {
+  const timestamp = new Date().toISOString().split('T')[0];
   
-  const flatData = data.map(row => {
-    const flatRow: Record<string, string | number | boolean | null> = {};
-    for (const [key, value] of Object.entries(row)) {
-      if (value === null || value === undefined) {
-        flatRow[key] = null;
-      } else if (typeof value === 'object') {
-        flatRow[key] = JSON.stringify(value);
-      } else {
-        flatRow[key] = value as string | number | boolean;
-      }
-    }
-    return flatRow;
-  });
-
-  const worksheet = XLSX.utils.json_to_sheet(flatData);
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, "Data");
-  XLSX.writeFile(workbook, `${filename}.xlsx`);
+  return (
+    <div className="rounded-lg border border-green-200 bg-green-50 dark:bg-green-950/20 dark:border-green-900 p-6 mb-4">
+      <div className="flex items-center gap-2 mb-4">
+        <CheckCircle2 className="w-6 h-6 text-green-600 dark:text-green-400" />
+        <h3 className="font-semibold text-lg text-green-800 dark:text-green-200">Export Complete!</h3>
+      </div>
+      
+      <p className="text-green-700 dark:text-green-300 mb-2">
+        <span className="font-bold">{totalRecords.toLocaleString()}</span> records exported to Excel
+      </p>
+      <p className="text-sm text-green-600 dark:text-green-400 mb-4">
+        File: lineage_nodes_export_{timestamp}.xlsx
+      </p>
+      
+      <Button onClick={onExportAgain} variant="outline" size="sm">
+        <Download className="w-4 h-4 mr-2" />
+        Export Again
+      </Button>
+    </div>
+  );
 }
 
-const PAGE_SIZE = 10000;
+function ErrorPanel({ 
+  error, 
+  currentPage,
+  totalRecords,
+  onRetry, 
+  onDownloadPartial,
+  onCancel 
+}: { 
+  error: string;
+  currentPage: number;
+  totalRecords: number;
+  onRetry: () => void;
+  onDownloadPartial: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-6 mb-4">
+      <div className="flex items-center gap-2 mb-4">
+        <XCircle className="w-6 h-6 text-destructive" />
+        <h3 className="font-semibold text-lg text-destructive">Export Failed</h3>
+      </div>
+      
+      <p className="text-sm text-destructive mb-2">
+        Error on page {currentPage}: {error}
+      </p>
+      <p className="text-sm text-muted-foreground mb-4">
+        {totalRecords.toLocaleString()} records fetched before error
+      </p>
+      
+      <div className="flex gap-2 flex-wrap">
+        <Button onClick={onRetry} variant="default" size="sm">
+          Retry
+        </Button>
+        {totalRecords > 0 && (
+          <Button onClick={onDownloadPartial} variant="outline" size="sm">
+            <Download className="w-4 h-4 mr-2" />
+            Download Partial ({totalRecords.toLocaleString()})
+          </Button>
+        )}
+        <Button onClick={onCancel} variant="ghost" size="sm">
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
 
-export function GraphQLDataPreview({ autoFetch = true }: GraphQLDataPreviewProps) {
-  const [allNodes, setAllNodes] = useState<Array<Record<string, unknown>>>([]);
-  const [isFetchingAll, setIsFetchingAll] = useState(false);
-  const [fetchProgress, setFetchProgress] = useState<FetchProgress>({
+export function GraphQLDataPreview({ autoFetch = false }: GraphQLDataPreviewProps) {
+  const [allRecords, setAllRecords] = useState<Array<Record<string, unknown>>>([]);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState<ExportProgress>({
     currentPage: 0,
+    pagesCompleted: [],
     totalRecords: 0,
     isComplete: false,
+    error: null,
   });
-  const [error, setError] = useState<string | null>(null);
-  const abortRef = useRef(false);
+  const [showSuccess, setShowSuccess] = useState(false);
+  const cancelledRef = useRef(false);
 
-  const fetchAllPages = useCallback(async () => {
-    setIsFetchingAll(true);
-    setError(null);
-    setAllNodes([]);
-    setFetchProgress({ currentPage: 0, totalRecords: 0, isComplete: false });
-    abortRef.current = false;
+  const exportAllToExcel = useCallback(async () => {
+    // Reset state
+    setIsExporting(true);
+    setShowSuccess(false);
+    setAllRecords([]);
+    setExportProgress({
+      currentPage: 1,
+      pagesCompleted: [],
+      totalRecords: 0,
+      isComplete: false,
+      error: null,
+    });
+    cancelledRef.current = false;
 
-    let cursor: string | undefined = undefined;
+    let cursor: string | null = null;
     let pageNum = 0;
     const accumulated: Array<Record<string, unknown>> = [];
 
     try {
-      while (!abortRef.current) {
+      while (!cancelledRef.current) {
         pageNum++;
-        setFetchProgress(prev => ({ ...prev, currentPage: pageNum }));
+        setExportProgress(prev => ({ ...prev, currentPage: pageNum }));
+
+        // Build request body
+        const requestBody: { pageSize: number; cursor?: string } = { pageSize: PAGE_SIZE };
+        if (cursor) {
+          requestBody.cursor = cursor;
+        }
+
+        console.log(`[Export] Fetching page ${pageNum} with cursor:`, cursor ? cursor.substring(0, 50) + '...' : 'null');
 
         const { data, error: fnError } = await supabase.functions.invoke('query-fabric-graphql', {
-          body: { pageSize: PAGE_SIZE, cursor }
+          body: requestBody
         });
 
-        if (fnError) throw new Error(fnError.message);
-        if (data.error) throw new Error(data.error);
+        if (fnError) {
+          throw new Error(fnError.message);
+        }
+        if (data.error) {
+          throw new Error(data.error);
+        }
 
         const nodes = data.lineage_nodes || [];
+        const hasNextPage = data.pagination?.has_next_page ?? false;
+        const endCursor = data.pagination?.end_cursor ?? null;
+
+        console.log(`[Export] Page ${pageNum} received: ${nodes.length} records, hasNextPage: ${hasNextPage}, endCursor:`, endCursor ? endCursor.substring(0, 50) + '...' : 'null');
+
+        // Append records
         accumulated.push(...nodes);
-        
-        setAllNodes([...accumulated]);
-        setFetchProgress(prev => ({ 
-          ...prev, 
-          totalRecords: accumulated.length 
+        setAllRecords([...accumulated]);
+
+        // Update progress
+        setExportProgress(prev => ({
+          ...prev,
+          pagesCompleted: [...prev.pagesCompleted, { pageNumber: pageNum, recordCount: nodes.length }],
+          totalRecords: accumulated.length,
         }));
 
-        const hasNextPage = data.pagination?.has_next_page || false;
-        const endCursor = data.pagination?.end_cursor || null;
-
-        // Stop conditions: no more pages OR fewer than PAGE_SIZE records (last page)
-        if (!hasNextPage || nodes.length < PAGE_SIZE) {
-          setFetchProgress(prev => ({ ...prev, isComplete: true }));
+        // Check if cancelled
+        if (cancelledRef.current) {
+          console.log('[Export] Cancelled by user');
           break;
         }
 
+        // Check stop conditions
+        if (!hasNextPage || nodes.length === 0) {
+          console.log('[Export] Reached end of data');
+          setExportProgress(prev => ({ ...prev, isComplete: true }));
+          break;
+        }
+
+        // Move to next page
         cursor = endCursor;
       }
+
+      // If not cancelled and we have data, download Excel
+      if (!cancelledRef.current && accumulated.length > 0) {
+        console.log(`[Export] Generating Excel with ${accumulated.length} records`);
+        downloadAsExcel(accumulated, 'lineage_nodes');
+        setShowSuccess(true);
+      }
+
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch data');
+      console.error('[Export] Error:', err);
+      setExportProgress(prev => ({
+        ...prev,
+        error: err instanceof Error ? err.message : 'Failed to fetch data',
+      }));
     } finally {
-      setIsFetchingAll(false);
+      setIsExporting(false);
     }
   }, []);
 
-  // Auto-fetch all pages on mount
-  useEffect(() => {
-    if (autoFetch && allNodes.length === 0 && !isFetchingAll && !fetchProgress.isComplete) {
-      fetchAllPages();
-    }
-  }, [autoFetch, fetchAllPages, allNodes.length, isFetchingAll, fetchProgress.isComplete]);
+  const handleCancel = () => {
+    cancelledRef.current = true;
+    setIsExporting(false);
+  };
 
-  const handleDownloadAll = () => {
-    if (allNodes.length > 0) {
-      downloadAsExcel(allNodes, `lineage_nodes_all_${allNodes.length}_records`);
+  const handleDownloadPartial = () => {
+    if (allRecords.length > 0) {
+      downloadAsExcel(allRecords, 'lineage_nodes_partial');
     }
   };
 
-  const handleRetry = () => {
-    fetchAllPages();
+  const handleClearError = () => {
+    setExportProgress(prev => ({ ...prev, error: null }));
   };
-
-  if (error && allNodes.length === 0) {
-    return (
-      <Card className="border-destructive/50">
-        <CardHeader>
-          <CardTitle className="text-destructive flex items-center gap-2">
-            <AlertCircle className="w-5 h-5" />
-            Error Loading Data
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground mb-4">{error}</p>
-          <Button variant="outline" size="sm" onClick={handleRetry}>
-            Retry
-          </Button>
-        </CardContent>
-      </Card>
-    );
-  }
 
   return (
     <Card className="w-full flex-1 flex flex-col">
@@ -214,86 +350,72 @@ export function GraphQLDataPreview({ autoFetch = true }: GraphQLDataPreviewProps
         <div className="flex flex-col gap-1">
           <CardTitle className="flex items-center gap-2">
             <Database className="w-5 h-5" />
-            Lineage Data Preview
+            Lineage Data Export
           </CardTitle>
           <CardDescription>
-            {isFetchingAll ? (
-              <span className="flex items-center gap-2">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Fetching page {fetchProgress.currentPage}...
-              </span>
-            ) : fetchProgress.isComplete ? (
-              <span className="flex items-center gap-2 text-green-600 dark:text-green-400">
-                <CheckCircle2 className="w-4 h-4" />
-                Complete • {fetchProgress.currentPage} page{fetchProgress.currentPage > 1 ? 's' : ''} fetched
-              </span>
-            ) : (
-              'Loading data from Fabric Lakehouse...'
-            )}
+            Fetch all records from Fabric Lakehouse and export to Excel
           </CardDescription>
         </div>
         <div className="flex items-center gap-4">
-          {/* Total Records Counter */}
-          <div className="flex flex-col items-end">
-            <span className="text-2xl font-bold text-primary">
-              {fetchProgress.totalRecords.toLocaleString()}
-            </span>
-            <span className="text-xs text-muted-foreground">Total Records</span>
-          </div>
-          {fetchProgress.isComplete && allNodes.length > 0 && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleDownloadAll}
-            >
-              <Download className="w-4 h-4 mr-2" />
-              Download All
-            </Button>
+          {allRecords.length > 0 && !isExporting && (
+            <div className="flex flex-col items-end">
+              <span className="text-2xl font-bold text-primary">
+                {allRecords.length.toLocaleString()}
+              </span>
+              <span className="text-xs text-muted-foreground">Records Loaded</span>
+            </div>
           )}
+          <Button
+            onClick={exportAllToExcel}
+            disabled={isExporting}
+            className="gap-2"
+          >
+            {isExporting ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Exporting...
+              </>
+            ) : (
+              <>
+                <FileSpreadsheet className="w-4 h-4" />
+                Export All to Excel
+              </>
+            )}
+          </Button>
         </div>
       </CardHeader>
+      
       <CardContent className="flex-1 flex flex-col">
-        {isFetchingAll && (
-          <div className="mb-4">
-            <Progress value={undefined} className="h-2" />
-            <p className="text-xs text-muted-foreground mt-1 text-center">
-              Fetching all pages automatically...
-            </p>
-          </div>
+        {/* Progress Panel */}
+        {isExporting && (
+          <ProgressPanel 
+            progress={exportProgress} 
+            onCancel={handleCancel} 
+          />
         )}
 
-        {error && allNodes.length > 0 && (
-          <div className="mb-4 p-3 rounded-md bg-destructive/10 border border-destructive/20">
-            <p className="text-sm text-destructive flex items-center gap-2">
-              <AlertCircle className="w-4 h-4" />
-              Error on page {fetchProgress.currentPage}: {error}
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {allNodes.length.toLocaleString()} records were fetched before the error.
-            </p>
-            <Button variant="outline" size="sm" className="mt-2" onClick={handleRetry}>
-              Retry from beginning
-            </Button>
-          </div>
+        {/* Success Panel */}
+        {showSuccess && !isExporting && (
+          <SuccessPanel 
+            totalRecords={allRecords.length} 
+            onExportAgain={exportAllToExcel} 
+          />
         )}
 
-        {allNodes.length === 0 && !isFetchingAll ? (
-          <LoadingSkeleton />
-        ) : (
-          <Tabs defaultValue="nodes" className="w-full flex-1 flex flex-col">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="nodes">
-                Nodes ({allNodes.length.toLocaleString()})
-              </TabsTrigger>
-              <TabsTrigger value="edges" disabled>
-                Edges (0)
-              </TabsTrigger>
-            </TabsList>
-            <TabsContent value="nodes" className="mt-4 flex-1">
-              <DataTable data={allNodes} tableName="lineage_nodes" />
-            </TabsContent>
-          </Tabs>
+        {/* Error Panel */}
+        {exportProgress.error && !isExporting && (
+          <ErrorPanel
+            error={exportProgress.error}
+            currentPage={exportProgress.currentPage}
+            totalRecords={exportProgress.totalRecords}
+            onRetry={exportAllToExcel}
+            onDownloadPartial={handleDownloadPartial}
+            onCancel={handleClearError}
+          />
         )}
+
+        {/* Data Table */}
+        <DataTable data={allRecords} />
       </CardContent>
     </Card>
   );
