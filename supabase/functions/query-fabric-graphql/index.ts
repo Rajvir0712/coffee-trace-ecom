@@ -79,10 +79,9 @@ async function queryGraphQL(accessToken: string, query: string): Promise<unknown
   return result.data;
 }
 
-// All fields to extract - using snake_case as in database
+// All fields to extract
 const LINEAGE_NODE_FIELDS = `
   sale_contract
-  query_lot
   lot_no
   parent_lot
   depth
@@ -113,6 +112,7 @@ function buildDistinctPagesQuery(first: number): string {
       lineage_nodes(first: ${first}) {
         items {
           page_info
+          sale_contract
         }
       }
     }
@@ -160,7 +160,7 @@ async function fetchDistinctPages(accessToken: string, maxPages: number = 100000
   
   const data = await queryGraphQL(accessToken, query) as {
     lineage_nodes?: {
-      items?: Array<{ page_info: string }>;
+      items?: Array<{ page_info: string; sale_contract: string }>;
     };
   };
 
