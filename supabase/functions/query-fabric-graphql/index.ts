@@ -79,51 +79,51 @@ async function queryGraphQL(accessToken: string, query: string): Promise<unknown
   return result.data;
 }
 
-// All fields to extract
+// All fields to extract - using camelCase as GraphQL may transform snake_case
 const LINEAGE_NODE_FIELDS = `
-  sale_contract
-  lot_no
-  parent_lot
+  saleContract
+  lotNo
+  parentLot
   depth
   path
   status
-  process_types
-  is_terminal
-  terminal_reason
+  processTypes
+  isTerminal
+  terminalReason
   relationship
-  item_no
+  itemNo
   description
   certified
-  unit_of_measure
-  production_order
-  output_quantity
-  output_date
-  purchase_quantity
-  purchase_date
-  trace_complete
-  trace_timestamp
-  page_info
+  unitOfMeasure
+  productionOrder
+  outputQuantity
+  outputDate
+  purchaseQuantity
+  purchaseDate
+  traceComplete
+  traceTimestamp
+  pageInfo
 `;
 
-// Build query to get distinct page_info values
+// Build query to get distinct pageInfo values
 function buildDistinctPagesQuery(first: number): string {
   return `
     query {
       lineage_nodes(first: ${first}) {
         items {
-          page_info
-          sale_contract
+          pageInfo
+          saleContract
         }
       }
     }
   `;
 }
 
-// Build query filtered by page_info
+// Build query filtered by pageInfo
 function buildPageFilteredQuery(pageInfo: string, first: number): string {
   return `
     query {
-      lineage_nodes(filter: { page_info: { eq: "${pageInfo}" } }, first: ${first}) {
+      lineage_nodes(filter: { pageInfo: { eq: "${pageInfo}" } }, first: ${first}) {
         items {
           ${LINEAGE_NODE_FIELDS}
         }
@@ -156,17 +156,17 @@ interface PageResult {
 
 async function fetchDistinctPages(accessToken: string, maxPages: number = 100000): Promise<string[]> {
   const query = buildDistinctPagesQuery(maxPages);
-  console.log('Fetching distinct page_info values...');
+  console.log('Fetching distinct pageInfo values...');
   
   const data = await queryGraphQL(accessToken, query) as {
     lineage_nodes?: {
-      items?: Array<{ page_info: string; sale_contract: string }>;
+      items?: Array<{ pageInfo: string; saleContract: string }>;
     };
   };
 
   const items = data.lineage_nodes?.items || [];
-  const uniquePages = [...new Set(items.map(item => item.page_info).filter(Boolean))];
-  console.log(`Found ${uniquePages.length} distinct page_info values`);
+  const uniquePages = [...new Set(items.map(item => item.pageInfo).filter(Boolean))];
+  console.log(`Found ${uniquePages.length} distinct pageInfo values`);
   
   return uniquePages;
 }
