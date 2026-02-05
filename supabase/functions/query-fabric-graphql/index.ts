@@ -102,26 +102,28 @@ const LINEAGE_NODE_FIELDS = `
   purchase_date
   trace_complete
   trace_timestamp
+  page_info
 `;
 
-// Build query to get distinct lot_no values
-function buildDistinctLotsQuery(first: number): string {
+// Build query to get distinct page_info values
+function buildDistinctPagesQuery(first: number): string {
   return `
     query {
       lineage_nodes(first: ${first}) {
         items {
-          lot_no
+          page_info
+          sale_contract
         }
       }
     }
   `;
 }
 
-// Build query filtered by lot_no
-function buildLotFilteredQuery(lotNo: string, first: number): string {
+// Build query filtered by page_info
+function buildPageFilteredQuery(pageInfo: string, first: number): string {
   return `
     query {
-      lineage_nodes(filter: { lot_no: { eq: "${lotNo}" } }, first: ${first}) {
+      lineage_nodes(filter: { page_info: { eq: "${pageInfo}" } }, first: ${first}) {
         items {
           ${LINEAGE_NODE_FIELDS}
         }
@@ -152,25 +154,25 @@ interface PageResult {
   hasNextPage: boolean;
 }
 
-async function fetchDistinctLots(accessToken: string, maxLots: number = 100000): Promise<string[]> {
-  const query = buildDistinctLotsQuery(maxLots);
-  console.log('Fetching distinct lot_no values...');
+async function fetchDistinctPages(accessToken: string, maxPages: number = 100000): Promise<string[]> {
+  const query = buildDistinctPagesQuery(maxPages);
+  console.log('Fetching distinct page_info values...');
   
   const data = await queryGraphQL(accessToken, query) as {
     lineage_nodes?: {
-      items?: Array<{ lot_no: string }>;
+      items?: Array<{ page_info: string; sale_contract: string }>;
     };
   };
 
   const items = data.lineage_nodes?.items || [];
-  const uniqueLots = [...new Set(items.map(item => item.lot_no).filter(Boolean))];
-  console.log(`Found ${uniqueLots.length} distinct lot_no values`);
+  const uniquePages = [...new Set(items.map(item => item.page_info).filter(Boolean))];
+  console.log(`Found ${uniquePages.length} distinct page_info values`);
   
-  return uniqueLots;
+  return uniquePages;
 }
 
-async function fetchByLotNo(accessToken: string, lotNo: string, pageSize: number): Promise<Array<Record<string, unknown>>> {
-  const query = buildLotFilteredQuery(lotNo, pageSize);
+async function fetchByPageInfo(accessToken: string, pageInfo: string, pageSize: number): Promise<Array<Record<string, unknown>>> {
+  const query = buildPageFilteredQuery(pageInfo, pageSize);
   
   const data = await queryGraphQL(accessToken, query) as {
     lineage_nodes?: {
@@ -218,38 +220,38 @@ serve(async (req) => {
 
     const body = await req.json();
     const { 
-      action = 'fetch', // 'fetch' | 'get_lots' | 'fetch_by_lot'
+      action = 'fetch', // 'fetch' | 'get_pages' | 'fetch_by_page'
       pageSize = 10000, 
       cursor,
-      lotNo 
+      pageInfo 
     }: { 
       action?: string;
       pageSize?: number; 
       cursor?: string;
-      lotNo?: string;
+      pageInfo?: string;
     } = body;
 
     // Get access token using Service Principal
     const accessToken = await getAccessToken();
 
     // Handle different actions
-    if (action === 'get_lots') {
-      // Get distinct lot_no values
-      const lots = await fetchDistinctLots(accessToken, pageSize);
+    if (action === 'get_pages') {
+      // Get distinct page_info values
+      const pages = await fetchDistinctPages(accessToken, pageSize);
       return new Response(
-        JSON.stringify({ lots, count: lots.length }),
+        JSON.stringify({ pages, count: pages.length }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    if (action === 'fetch_by_lot' && lotNo) {
-      // Fetch records for a specific lot
-      console.log(`Fetching records for lot_no: ${lotNo}`);
-      const nodes = await fetchByLotNo(accessToken, lotNo, pageSize);
+    if (action === 'fetch_by_page' && pageInfo) {
+      // Fetch records for a specific page
+      console.log(`Fetching records for page_info: ${pageInfo}`);
+      const nodes = await fetchByPageInfo(accessToken, pageInfo, pageSize);
       return new Response(
         JSON.stringify({ 
           lineage_nodes: nodes, 
-          lot_no: lotNo,
+          page_info: pageInfo,
           record_count: nodes.length 
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
