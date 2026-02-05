@@ -26,6 +26,7 @@ interface GraphQLDataPreviewProps {
 }
 
 const LOT_PAGE_SIZE = 10000; // Records per lot query
+const PARALLEL_REQUESTS = 3; // Number of concurrent API requests
 
 function formatCellValue(value: unknown): string {
   if (value === null || value === undefined) return '-';
@@ -282,22 +283,10 @@ export function GraphQLDataPreview({ autoFetch = false }: GraphQLDataPreviewProp
 
       setExportProgress(prev => ({ ...prev, totalPages: pages.length }));
 
-      // Step 2: Fetch records for each page
-      for (let i = 0; i < pages.length; i++) {
-        if (cancelledRef.current) {
-          console.log('[Export] Cancelled by user');
-          break;
-        }
-
-        const pageInfo = pages[i];
-        setExportProgress(prev => ({ ...prev, currentPage: pageInfo }));
-
-        console.log(`[Export] Fetching page ${i + 1}/${pages.length}: ${pageInfo}`);
-
-        // Retry logic with exponential backoff
-        let nodes: Array<Record<string, unknown>> = [];
-        let lastError: Error | null = null;
+      // Helper function to fetch a single page with retry
+      const fetchPageWithRetry = async (pageInfo: string): Promise<{ pageInfo: string; nodes: Array<Record<string, unknown>> }> => {
         const maxRetries = 3;
+        let lastError: Error | null = null;
 
         for (let attempt = 0; attempt < maxRetries; attempt++) {
           try {
@@ -308,37 +297,50 @@ export function GraphQLDataPreview({ autoFetch = false }: GraphQLDataPreviewProp
             if (fnError) throw new Error(fnError.message);
             if (data.error) throw new Error(data.error);
 
-            nodes = data.lineage_nodes || [];
-            lastError = null;
-            break; // Success, exit retry loop
+            return { pageInfo, nodes: data.lineage_nodes || [] };
           } catch (err) {
             lastError = err instanceof Error ? err : new Error('Unknown error');
             console.warn(`[Export] Attempt ${attempt + 1}/${maxRetries} failed for page ${pageInfo}:`, lastError.message);
             
             if (attempt < maxRetries - 1) {
-              // Wait before retrying (exponential backoff: 2s, 4s, 8s)
               const delay = Math.pow(2, attempt + 1) * 1000;
-              console.log(`[Export] Retrying in ${delay / 1000}s...`);
               await new Promise(resolve => setTimeout(resolve, delay));
             }
           }
         }
+        throw lastError;
+      };
 
-        if (lastError) {
-          throw lastError;
+      // Step 2: Fetch records in parallel batches
+      console.log(`[Export] Fetching ${pages.length} pages with ${PARALLEL_REQUESTS} parallel requests`);
+      
+      for (let i = 0; i < pages.length; i += PARALLEL_REQUESTS) {
+        if (cancelledRef.current) {
+          console.log('[Export] Cancelled by user');
+          break;
         }
-        console.log(`[Export] Page ${pageInfo}: ${nodes.length} records`);
 
-        // Append records
-        accumulated.push(...nodes);
+        const batch = pages.slice(i, i + PARALLEL_REQUESTS);
+        const currentPages = batch.join(', ');
+        setExportProgress(prev => ({ ...prev, currentPage: currentPages }));
+
+        console.log(`[Export] Fetching batch ${Math.floor(i / PARALLEL_REQUESTS) + 1}: pages ${currentPages}`);
+
+        // Fetch all pages in the batch in parallel
+        const results = await Promise.all(batch.map(pageInfo => fetchPageWithRetry(pageInfo)));
+
+        // Process results
+        for (const result of results) {
+          accumulated.push(...result.nodes);
+          setExportProgress(prev => ({
+            ...prev,
+            pagesCompleted: [...prev.pagesCompleted, { pageInfo: result.pageInfo, recordCount: result.nodes.length }],
+            totalRecords: accumulated.length,
+          }));
+        }
+        
         setAllRecords([...accumulated]);
-
-        // Update progress
-        setExportProgress(prev => ({
-          ...prev,
-          pagesCompleted: [...prev.pagesCompleted, { pageInfo, recordCount: nodes.length }],
-          totalRecords: accumulated.length,
-        }));
+        console.log(`[Export] Batch complete: ${results.reduce((sum, r) => sum + r.nodes.length, 0)} records`);
       }
 
       // If not cancelled and we have data, download Excel
