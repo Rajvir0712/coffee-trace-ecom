@@ -113,7 +113,6 @@ function buildDistinctPagesQuery(first: number): string {
       lineage_nodes(first: ${first}) {
         items {
           page_info
-          sale_contract
         }
       }
     }
@@ -161,7 +160,7 @@ async function fetchDistinctPages(accessToken: string, maxPages: number = 100000
   
   const data = await queryGraphQL(accessToken, query) as {
     lineage_nodes?: {
-      items?: Array<{ page_info: string; sale_contract: string }>;
+      items?: Array<{ page_info: string }>;
     };
   };
 
