@@ -24,7 +24,7 @@ interface GraphQLDataPreviewProps {
   autoFetch?: boolean;
 }
 
-const PAGE_SIZE = 10000;
+const PAGE_SIZE = 100000; // Request max records since Fabric cursor pagination is broken
 
 function formatCellValue(value: unknown): string {
   if (value === null || value === undefined) return '-';
