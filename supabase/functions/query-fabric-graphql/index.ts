@@ -104,24 +104,9 @@ const LINEAGE_NODE_FIELDS = `
   trace_timestamp
 `;
 
-// Build cursor-based query with ordering for consistent pagination
+// Build cursor-based query WITHOUT orderBy (cursor contains ordering state already)
 function buildCursorQuery(first: number, after?: string): string {
-  const afterClause = after ? `, after: "${after}"` : '';
-  return `
-    query {
-      lineage_nodes(first: ${first}${afterClause}, orderBy: {sale_contract: ASC}) {
-        items {
-          ${LINEAGE_NODE_FIELDS}
-        }
-        endCursor
-        hasNextPage
-      }
-    }
-  `;
-}
-
-// Fallback query without orderBy if it's not supported
-function buildSimpleCursorQuery(first: number, after?: string): string {
+  // Note: Do NOT use orderBy with cursor - cursor already encodes the position
   const afterClause = after ? `, after: "${after}"` : '';
   return `
     query {
@@ -143,10 +128,11 @@ interface PageResult {
 }
 
 async function fetchSinglePage(accessToken: string, pageSize: number, cursor?: string): Promise<PageResult> {
-  let useOrderBy = true;
-  let query = buildCursorQuery(pageSize, cursor);
+  const query = buildCursorQuery(pageSize, cursor);
   
-  let data: {
+  console.log('GraphQL Query:', query);
+  
+  const data = await queryGraphQL(accessToken, query) as {
     lineage_nodes?: {
       items?: Array<Record<string, unknown>>;
       endCursor?: string;
@@ -154,21 +140,11 @@ async function fetchSinglePage(accessToken: string, pageSize: number, cursor?: s
     };
   };
 
-  try {
-    data = await queryGraphQL(accessToken, query) as typeof data;
-  } catch (err) {
-    // If orderBy fails, switch to simple query
-    console.log('orderBy not supported, falling back to simple cursor query');
-    useOrderBy = false;
-    query = buildSimpleCursorQuery(pageSize, cursor);
-    data = await queryGraphQL(accessToken, query) as typeof data;
-  }
-
   const items = data.lineage_nodes?.items || [];
   const endCursor = data.lineage_nodes?.endCursor || null;
   const hasNextPage = data.lineage_nodes?.hasNextPage ?? false;
 
-  console.log(`Fetched ${items.length} records, hasNextPage: ${hasNextPage}`);
+  console.log(`Fetched ${items.length} records, hasNextPage: ${hasNextPage}, endCursor: ${endCursor ? endCursor.substring(0, 50) + '...' : 'null'}`);
   
   return { nodes: items, endCursor, hasNextPage };
 }
