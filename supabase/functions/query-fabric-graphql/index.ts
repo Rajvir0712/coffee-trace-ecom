@@ -105,6 +105,15 @@ const LINEAGE_NODE_FIELDS = `
   page_info
 `;
 
+const LINEAGE_FARMER_FIELDS = `
+  sale_contract
+  query_lot
+  lot_no
+  item_number
+  location_code
+  counterparty
+`;
+
 // Build query to get distinct page_info values
 function buildDistinctPagesQuery(first: number): string {
   return `
@@ -148,6 +157,19 @@ function buildCursorQuery(first: number, after?: string): string {
   `;
 }
 
+// Build query to fetch all lineage_farmers (no pagination needed)
+function buildFarmersQuery(first: number): string {
+  return `
+    query {
+      lineage_farmers(first: ${first}) {
+        items {
+          ${LINEAGE_FARMER_FIELDS}
+        }
+      }
+    }
+  `;
+}
+
 interface PageResult {
   nodes: Array<Record<string, unknown>>;
   endCursor: string | null;
@@ -181,6 +203,21 @@ async function fetchByPageInfo(accessToken: string, pageInfo: number, pageSize: 
   };
 
   return data.lineage_nodes?.items || [];
+}
+
+async function fetchFarmers(accessToken: string, maxRecords: number = 100000): Promise<Array<Record<string, unknown>>> {
+  const query = buildFarmersQuery(maxRecords);
+  console.log('Fetching lineage_farmers...');
+  
+  const data = await queryGraphQL(accessToken, query) as {
+    lineage_farmers?: {
+      items?: Array<Record<string, unknown>>;
+    };
+  };
+
+  const items = data.lineage_farmers?.items || [];
+  console.log(`Fetched ${items.length} farmer records`);
+  return items;
 }
 
 async function fetchSinglePage(accessToken: string, pageSize: number, cursor?: string): Promise<PageResult> {
@@ -220,7 +257,7 @@ serve(async (req) => {
 
     const body = await req.json();
     const { 
-      action = 'fetch', // 'fetch' | 'get_pages' | 'fetch_by_page'
+      action = 'fetch', // 'fetch' | 'get_pages' | 'fetch_by_page' | 'fetch_farmers'
       pageSize = 10000, 
       cursor,
       pageInfo 
@@ -253,6 +290,18 @@ serve(async (req) => {
           lineage_nodes: nodes, 
           page_info: pageInfo,
           record_count: nodes.length 
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (action === 'fetch_farmers') {
+      // Fetch all lineage_farmers (no pagination needed)
+      const farmers = await fetchFarmers(accessToken, pageSize);
+      return new Response(
+        JSON.stringify({ 
+          lineage_farmers: farmers, 
+          record_count: farmers.length 
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
