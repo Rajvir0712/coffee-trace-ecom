@@ -18,7 +18,6 @@ import { CocoaTracker, CocoaRecord } from "@/lib/cocoaParser";
 import { CocoaViewer } from "@/components/CocoaViewer";
 import { analyzeVLOOKUPStructure } from "@/lib/analyzeVLOOKUP";
 import { triggerLineageTrace, checkJobStatus, mapJobStatus, JobStatus } from "@/lib/fabricApi";
-import { GraphQLDataPreview } from "@/components/GraphQLDataPreview";
 import { toast } from "sonner";
 import { Coffee, TrendingUp, Package, Calendar, Loader2, Maximize2, Minimize2, Download, Cloud, FileSpreadsheet } from "lucide-react";
 import logo from "@/assets/logo.png";
@@ -739,9 +738,14 @@ const Index = () => {
                 </CardContent>
               </Card>
               
-              {/* GraphQL Data Preview - shown after job success */}
+              {/* Navigate to Export page */}
               {showGraphqlPreview && (
-                <GraphQLDataPreview autoFetch={true} />
+                <div className="flex justify-center">
+                  <Button onClick={() => window.location.href = '/export'} className="gap-2">
+                    <FileSpreadsheet className="w-4 h-4" />
+                    Go to Export Page
+                  </Button>
+                </div>
               )}
               </>
             )}
