@@ -34,10 +34,8 @@ function formatCellValue(value: unknown): string {
   return String(value);
 }
 
-function downloadAsExcel(records: Array<Record<string, unknown>>, tableName: string) {
-  if (records.length === 0) return;
-  
-  const flatData = records.map(row => {
+function flattenRecords(records: Array<Record<string, unknown>>): Array<Record<string, string | number | boolean | null>> {
+  return records.map(row => {
     const flatRow: Record<string, string | number | boolean | null> = {};
     for (const [key, value] of Object.entries(row)) {
       if (value === null || value === undefined) {
@@ -50,13 +48,29 @@ function downloadAsExcel(records: Array<Record<string, unknown>>, tableName: str
     }
     return flatRow;
   });
+}
 
-  const worksheet = XLSX.utils.json_to_sheet(flatData);
+function downloadAsExcel(
+  nodesRecords: Array<Record<string, unknown>>, 
+  farmersRecords: Array<Record<string, unknown>>,
+  filePrefix: string
+) {
+  if (nodesRecords.length === 0 && farmersRecords.length === 0) return;
+
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, "Data");
+  
+  if (nodesRecords.length > 0) {
+    const nodesSheet = XLSX.utils.json_to_sheet(flattenRecords(nodesRecords));
+    XLSX.utils.book_append_sheet(workbook, nodesSheet, "lineage_nodes");
+  }
+  
+  if (farmersRecords.length > 0) {
+    const farmersSheet = XLSX.utils.json_to_sheet(flattenRecords(farmersRecords));
+    XLSX.utils.book_append_sheet(workbook, farmersSheet, "lineage_farmers");
+  }
   
   const timestamp = new Date().toISOString().split('T')[0];
-  XLSX.writeFile(workbook, `${tableName}_export_${timestamp}.xlsx`);
+  XLSX.writeFile(workbook, `${filePrefix}_export_${timestamp}.xlsx`);
 }
 
 function DataTable({ data }: { data: Array<Record<string, unknown>> }) {
@@ -232,6 +246,7 @@ function ErrorPanel({
 
 export function GraphQLDataPreview({ autoFetch = false }: GraphQLDataPreviewProps) {
   const [allRecords, setAllRecords] = useState<Array<Record<string, unknown>>>([]);
+  const [farmerRecords, setFarmerRecords] = useState<Array<Record<string, unknown>>>([]);
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState<ExportProgress>({
     currentPage: '',
@@ -249,6 +264,7 @@ export function GraphQLDataPreview({ autoFetch = false }: GraphQLDataPreviewProp
     setIsExporting(true);
     setShowSuccess(false);
     setAllRecords([]);
+    setFarmerRecords([]);
     setExportProgress({
       currentPage: '',
       pagesCompleted: [],
@@ -341,12 +357,28 @@ export function GraphQLDataPreview({ autoFetch = false }: GraphQLDataPreviewProp
         }));
       }
 
-      // If not cancelled and we have data, download Excel
-      if (!cancelledRef.current && accumulated.length > 0) {
-        console.log(`[Export] Generating Excel with ${accumulated.length} records`);
-        setExportProgress(prev => ({ ...prev, isComplete: true }));
-        downloadAsExcel(accumulated, 'lineage_nodes');
-        setShowSuccess(true);
+      // Fetch lineage_farmers (single request, no pagination)
+      if (!cancelledRef.current) {
+        console.log('[Export] Fetching lineage_farmers...');
+        setExportProgress(prev => ({ ...prev, currentPage: 'Fetching farmers data...' }));
+        
+        const { data: farmersData, error: farmersError } = await supabase.functions.invoke('query-fabric-graphql', {
+          body: { action: 'fetch_farmers', pageSize: 100000 }
+        });
+
+        if (farmersError) console.warn('[Export] Farmers fetch error:', farmersError.message);
+        
+        const farmers = farmersData?.lineage_farmers || [];
+        console.log(`[Export] Fetched ${farmers.length} farmer records`);
+        setFarmerRecords(farmers);
+
+        // Download Excel with both sheets
+        if (accumulated.length > 0) {
+          console.log(`[Export] Generating Excel with ${accumulated.length} nodes + ${farmers.length} farmers`);
+          setExportProgress(prev => ({ ...prev, isComplete: true }));
+          downloadAsExcel(accumulated, farmers, 'lineage_data');
+          setShowSuccess(true);
+        }
       }
 
     } catch (err) {
@@ -367,7 +399,7 @@ export function GraphQLDataPreview({ autoFetch = false }: GraphQLDataPreviewProp
 
   const handleDownloadPartial = () => {
     if (allRecords.length > 0) {
-      downloadAsExcel(allRecords, 'lineage_nodes_partial');
+      downloadAsExcel(allRecords, farmerRecords, 'lineage_data_partial');
     }
   };
 
