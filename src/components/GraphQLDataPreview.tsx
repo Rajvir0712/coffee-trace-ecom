@@ -378,7 +378,7 @@ export function GraphQLDataPreview({ autoFetch = false }: GraphQLDataPreviewProp
             ) : (
               <>
                 <FileSpreadsheet className="w-4 h-4" />
-                Export Purcon
+                Export Purchase Contracts
               </>
             )}
           </Button>
