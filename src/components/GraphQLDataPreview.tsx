@@ -3,12 +3,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Database, AlertCircle, Download, Loader2, CheckCircle2, XCircle, FileSpreadsheet } from "lucide-react";
 import * as XLSX from "xlsx";
 import { supabase } from "@/integrations/supabase/client";
-
-type ExportMode = "both" | "nodes_only" | "farmers_only";
 
 interface PageInfo {
   pageInfo: string;
@@ -251,7 +248,6 @@ export function GraphQLDataPreview({ autoFetch = false }: GraphQLDataPreviewProp
   const [allRecords, setAllRecords] = useState<Array<Record<string, unknown>>>([]);
   const [farmerRecords, setFarmerRecords] = useState<Array<Record<string, unknown>>>([]);
   const [isExporting, setIsExporting] = useState(false);
-  const [exportMode, setExportMode] = useState<ExportMode>("both");
   const [exportProgress, setExportProgress] = useState<ExportProgress>({
     currentPage: '',
     pagesCompleted: [],
@@ -264,6 +260,7 @@ export function GraphQLDataPreview({ autoFetch = false }: GraphQLDataPreviewProp
   const cancelledRef = useRef(false);
 
   const exportAllToExcel = useCallback(async () => {
+    // Reset state
     setIsExporting(true);
     setShowSuccess(false);
     setAllRecords([]);
@@ -281,74 +278,87 @@ export function GraphQLDataPreview({ autoFetch = false }: GraphQLDataPreviewProp
     const accumulated: Array<Record<string, unknown>> = [];
 
     try {
-      // Fetch nodes if needed
-      if (exportMode !== "farmers_only") {
-        console.log('[Export] Fetching distinct page_info values...');
-        setExportProgress(prev => ({ ...prev, currentPage: 'Loading page list...' }));
+      // Step 1: Fetch all distinct page_info values
+      console.log('[Export] Fetching distinct page_info values...');
+      setExportProgress(prev => ({ ...prev, currentPage: 'Loading page list...' }));
 
-        const { data: pagesData, error: pagesError } = await supabase.functions.invoke('query-fabric-graphql', {
-          body: { action: 'get_pages', pageSize: 100000 }
-        });
+      const { data: pagesData, error: pagesError } = await supabase.functions.invoke('query-fabric-graphql', {
+        body: { action: 'get_pages', pageSize: 100000 }
+      });
 
-        if (pagesError) throw new Error(pagesError.message);
-        if (pagesData.error) throw new Error(pagesData.error);
+      if (pagesError) throw new Error(pagesError.message);
+      if (pagesData.error) throw new Error(pagesData.error);
 
-        const pages: string[] = pagesData.pages || [];
-        console.log(`[Export] Found ${pages.length} distinct pages`);
+      const pages: string[] = pagesData.pages || [];
+      console.log(`[Export] Found ${pages.length} distinct pages`);
 
-        if (pages.length === 0 && exportMode === "nodes_only") {
-          throw new Error('No pages found in the database');
-        }
-
-        setExportProgress(prev => ({ ...prev, totalPages: pages.length }));
-
-        for (let i = 0; i < pages.length; i++) {
-          if (cancelledRef.current) break;
-
-          const pageInfo = pages[i];
-          setExportProgress(prev => ({ ...prev, currentPage: pageInfo }));
-
-          let nodes: Array<Record<string, unknown>> = [];
-          let lastError: Error | null = null;
-          const maxRetries = 3;
-
-          for (let attempt = 0; attempt < maxRetries; attempt++) {
-            try {
-              const { data, error: fnError } = await supabase.functions.invoke('query-fabric-graphql', {
-                body: { action: 'fetch_by_page', pageInfo, pageSize: LOT_PAGE_SIZE }
-              });
-
-              if (fnError) throw new Error(fnError.message);
-              if (data.error) throw new Error(data.error);
-
-              nodes = data.lineage_nodes || [];
-              lastError = null;
-              break;
-            } catch (err) {
-              lastError = err instanceof Error ? err : new Error('Unknown error');
-              if (attempt < maxRetries - 1) {
-                const delay = Math.pow(2, attempt + 1) * 1000;
-                await new Promise(resolve => setTimeout(resolve, delay));
-              }
-            }
-          }
-
-          if (lastError) throw lastError;
-
-          accumulated.push(...nodes);
-          setAllRecords([...accumulated]);
-
-          setExportProgress(prev => ({
-            ...prev,
-            pagesCompleted: [...prev.pagesCompleted, { pageInfo, recordCount: nodes.length }],
-            totalRecords: accumulated.length,
-          }));
-        }
+      if (pages.length === 0) {
+        throw new Error('No pages found in the database');
       }
 
-      // Fetch farmers if needed
-      let farmers: Array<Record<string, unknown>> = [];
-      if (exportMode !== "nodes_only" && !cancelledRef.current) {
+      setExportProgress(prev => ({ ...prev, totalPages: pages.length }));
+
+      // Step 2: Fetch records for each page
+      for (let i = 0; i < pages.length; i++) {
+        if (cancelledRef.current) {
+          console.log('[Export] Cancelled by user');
+          break;
+        }
+
+        const pageInfo = pages[i];
+        setExportProgress(prev => ({ ...prev, currentPage: pageInfo }));
+
+        console.log(`[Export] Fetching page ${i + 1}/${pages.length}: ${pageInfo}`);
+
+        // Retry logic with exponential backoff
+        let nodes: Array<Record<string, unknown>> = [];
+        let lastError: Error | null = null;
+        const maxRetries = 3;
+
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+          try {
+            const { data, error: fnError } = await supabase.functions.invoke('query-fabric-graphql', {
+              body: { action: 'fetch_by_page', pageInfo, pageSize: LOT_PAGE_SIZE }
+            });
+
+            if (fnError) throw new Error(fnError.message);
+            if (data.error) throw new Error(data.error);
+
+            nodes = data.lineage_nodes || [];
+            lastError = null;
+            break; // Success, exit retry loop
+          } catch (err) {
+            lastError = err instanceof Error ? err : new Error('Unknown error');
+            console.warn(`[Export] Attempt ${attempt + 1}/${maxRetries} failed for page ${pageInfo}:`, lastError.message);
+            
+            if (attempt < maxRetries - 1) {
+              // Wait before retrying (exponential backoff: 2s, 4s, 8s)
+              const delay = Math.pow(2, attempt + 1) * 1000;
+              console.log(`[Export] Retrying in ${delay / 1000}s...`);
+              await new Promise(resolve => setTimeout(resolve, delay));
+            }
+          }
+        }
+
+        if (lastError) {
+          throw lastError;
+        }
+        console.log(`[Export] Page ${pageInfo}: ${nodes.length} records`);
+
+        // Append records
+        accumulated.push(...nodes);
+        setAllRecords([...accumulated]);
+
+        // Update progress
+        setExportProgress(prev => ({
+          ...prev,
+          pagesCompleted: [...prev.pagesCompleted, { pageInfo, recordCount: nodes.length }],
+          totalRecords: accumulated.length,
+        }));
+      }
+
+      // Fetch lineage_farmers (single request, no pagination)
+      if (!cancelledRef.current) {
         console.log('[Export] Fetching lineage_farmers...');
         setExportProgress(prev => ({ ...prev, currentPage: 'Fetching farmers data...' }));
         
@@ -356,26 +366,18 @@ export function GraphQLDataPreview({ autoFetch = false }: GraphQLDataPreviewProp
           body: { action: 'fetch_farmers', pageSize: 100000 }
         });
 
-        if (farmersError) {
-          if (exportMode === "farmers_only") throw new Error(farmersError.message);
-          console.warn('[Export] Farmers fetch error:', farmersError.message);
-        }
+        if (farmersError) console.warn('[Export] Farmers fetch error:', farmersError.message);
         
-        farmers = farmersData?.lineage_farmers || [];
+        const farmers = farmersData?.lineage_farmers || [];
         console.log(`[Export] Fetched ${farmers.length} farmer records`);
         setFarmerRecords(farmers);
-      }
 
-      if (!cancelledRef.current) {
-        const hasData = accumulated.length > 0 || farmers.length > 0;
-        if (hasData) {
-          const prefix = exportMode === "farmers_only" ? 'lineage_farmers' : 
-                         exportMode === "nodes_only" ? 'lineage_nodes' : 'lineage_data';
+        // Download Excel with both sheets
+        if (accumulated.length > 0) {
+          console.log(`[Export] Generating Excel with ${accumulated.length} nodes + ${farmers.length} farmers`);
           setExportProgress(prev => ({ ...prev, isComplete: true }));
-          downloadAsExcel(accumulated, farmers, prefix);
+          downloadAsExcel(accumulated, farmers, 'lineage_data');
           setShowSuccess(true);
-        } else {
-          throw new Error('No data found to export');
         }
       }
 
@@ -388,7 +390,7 @@ export function GraphQLDataPreview({ autoFetch = false }: GraphQLDataPreviewProp
     } finally {
       setIsExporting(false);
     }
-  }, [exportMode]);
+  }, []);
 
   const handleCancel = () => {
     cancelledRef.current = true;
@@ -426,16 +428,6 @@ export function GraphQLDataPreview({ autoFetch = false }: GraphQLDataPreviewProp
               <span className="text-xs text-muted-foreground">Records Loaded</span>
             </div>
           )}
-          <Select value={exportMode} onValueChange={(v) => setExportMode(v as ExportMode)} disabled={isExporting}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="both">Both Tables</SelectItem>
-              <SelectItem value="nodes_only">Nodes Only</SelectItem>
-              <SelectItem value="farmers_only">Farmers Only</SelectItem>
-            </SelectContent>
-          </Select>
           <Button
             onClick={exportAllToExcel}
             disabled={isExporting}
@@ -449,7 +441,7 @@ export function GraphQLDataPreview({ autoFetch = false }: GraphQLDataPreviewProp
             ) : (
               <>
                 <FileSpreadsheet className="w-4 h-4" />
-                Export to Excel
+                Export All to Excel
               </>
             )}
           </Button>
