@@ -114,10 +114,6 @@ const LINEAGE_FARMER_FIELDS = `
   counterparty
 `;
 
-const LINEAGE_PURCON_FIELDS = `
-  lot_no
-  page_info
-`;
 
 // Build query to get distinct page_info values
 function buildDistinctPagesQuery(first: number): string {
@@ -175,19 +171,6 @@ function buildFarmersQuery(first: number): string {
   `;
 }
 
-// Build query to fetch all lineage_purcon
-function buildPurconQuery(first: number): string {
-  return `
-    query {
-      lineage_purcon(first: ${first}) {
-        items {
-          ${LINEAGE_PURCON_FIELDS}
-        }
-      }
-    }
-  `;
-}
-
 interface PageResult {
   nodes: Array<Record<string, unknown>>;
   endCursor: string | null;
@@ -238,20 +221,6 @@ async function fetchFarmers(accessToken: string, maxRecords: number = 100000): P
   return items;
 }
 
-async function fetchPurcon(accessToken: string, maxRecords: number = 100000): Promise<Array<Record<string, unknown>>> {
-  const query = buildPurconQuery(maxRecords);
-  console.log('Fetching lineage_purcon...');
-  
-  const data = await queryGraphQL(accessToken, query) as {
-    lineage_purcon?: {
-      items?: Array<Record<string, unknown>>;
-    };
-  };
-
-  const items = data.lineage_purcon?.items || [];
-  console.log(`Fetched ${items.length} purcon records`);
-  return items;
-}
 
 async function fetchSinglePage(accessToken: string, pageSize: number, cursor?: string): Promise<PageResult> {
   const query = buildCursorQuery(pageSize, cursor);
@@ -340,16 +309,6 @@ serve(async (req) => {
       );
     }
 
-    if (action === 'fetch_purcon') {
-      const purcon = await fetchPurcon(accessToken, pageSize);
-      return new Response(
-        JSON.stringify({ 
-          lineage_purcon: purcon, 
-          record_count: purcon.length 
-        }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
 
     console.log(`Fetching page with size ${pageSize}, cursor: ${cursor || 'none'}`);
     const result = await fetchSinglePage(accessToken, pageSize, cursor);
