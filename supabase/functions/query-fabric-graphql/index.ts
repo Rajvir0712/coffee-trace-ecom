@@ -116,7 +116,6 @@ const LINEAGE_FARMER_FIELDS = `
 
 const LINEAGE_PURCON_FIELDS = `
   lot_no
-  page_info
 `;
 
 
