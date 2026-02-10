@@ -247,8 +247,9 @@ function ErrorPanel({
 export function GraphQLDataPreview({ autoFetch = false }: GraphQLDataPreviewProps) {
   const [farmerRecords, setFarmerRecords] = useState<Array<Record<string, unknown>>>([]);
   const [purconRecords, setPurconRecords] = useState<Array<Record<string, unknown>>>([]);
+  const [lotsRecords, setLotsRecords] = useState<Array<Record<string, unknown>>>([]);
   const [isExporting, setIsExporting] = useState(false);
-  const [exportTarget, setExportTarget] = useState<'farmers' | 'purcon' | null>(null);
+  const [exportTarget, setExportTarget] = useState<'farmers' | 'purcon' | 'lots' | null>(null);
   const [exportProgress, setExportProgress] = useState<ExportProgress>({
     currentPage: '',
     pagesCompleted: [],
@@ -260,7 +261,7 @@ export function GraphQLDataPreview({ autoFetch = false }: GraphQLDataPreviewProp
   const [showSuccess, setShowSuccess] = useState(false);
   const cancelledRef = useRef(false);
 
-  const doExport = useCallback(async (target: 'farmers' | 'purcon') => {
+  const doExport = useCallback(async (target: 'farmers' | 'purcon' | 'lots') => {
     setIsExporting(true);
     setExportTarget(target);
     setShowSuccess(false);
@@ -275,7 +276,11 @@ export function GraphQLDataPreview({ autoFetch = false }: GraphQLDataPreviewProp
     cancelledRef.current = false;
 
     try {
-      const action = target === 'farmers' ? 'fetch_farmers' : 'fetch_purcon';
+      const actionMap = { farmers: 'fetch_farmers', purcon: 'fetch_purcon', lots: 'fetch_lots' };
+      const keyMap = { farmers: 'lineage_farmers', purcon: 'lineage_purcon', lots: 'lineage_lots' };
+      const action = actionMap[target];
+      const key = keyMap[target];
+
       const { data, error } = await supabase.functions.invoke('query-fabric-graphql', {
         body: { action, pageSize: 100000 }
       });
@@ -283,12 +288,12 @@ export function GraphQLDataPreview({ autoFetch = false }: GraphQLDataPreviewProp
       if (error) throw new Error(error.message);
       if (data?.error) throw new Error(data.error);
 
-      const key = target === 'farmers' ? 'lineage_farmers' : 'lineage_purcon';
       const records = data?.[key] || [];
       console.log(`[Export] Fetched ${records.length} ${target} records`);
 
       if (target === 'farmers') setFarmerRecords(records);
-      else setPurconRecords(records);
+      else if (target === 'purcon') setPurconRecords(records);
+      else setLotsRecords(records);
 
       if (records.length > 0) {
         setExportProgress(prev => ({
@@ -324,7 +329,7 @@ export function GraphQLDataPreview({ autoFetch = false }: GraphQLDataPreviewProp
     setExportProgress(prev => ({ ...prev, error: null }));
   };
 
-  const activeRecords = exportTarget === 'purcon' ? purconRecords : farmerRecords;
+  const activeRecords = exportTarget === 'purcon' ? purconRecords : exportTarget === 'lots' ? lotsRecords : farmerRecords;
 
   return (
     <Card className="w-full flex-1 flex flex-col">
@@ -379,6 +384,24 @@ export function GraphQLDataPreview({ autoFetch = false }: GraphQLDataPreviewProp
               <>
                 <FileSpreadsheet className="w-4 h-4" />
                 Export Purchase Contracts
+              </>
+            )}
+          </Button>
+          <Button
+            onClick={() => doExport('lots')}
+            disabled={isExporting}
+            variant="secondary"
+            className="gap-2"
+          >
+            {isExporting && exportTarget === 'lots' ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Exporting...
+              </>
+            ) : (
+              <>
+                <FileSpreadsheet className="w-4 h-4" />
+                Export Lots
               </>
             )}
           </Button>

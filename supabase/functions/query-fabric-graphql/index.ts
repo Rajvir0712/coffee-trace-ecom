@@ -119,6 +119,11 @@ const LINEAGE_PURCON_FIELDS = `
   page_info
 `;
 
+const LINEAGE_LOTS_FIELDS = `
+  lot_no
+  page_info
+`;
+
 
 function buildDistinctPagesQuery(first: number): string {
   return `
@@ -182,6 +187,19 @@ function buildPurconQuery(first: number): string {
       lineage_purcons(first: ${first}) {
         items {
           ${LINEAGE_PURCON_FIELDS}
+        }
+      }
+    }
+  `;
+}
+
+// Build query to fetch all lineage_lots
+function buildLotsQuery(first: number): string {
+  return `
+    query {
+      lineage_lots(first: ${first}) {
+        items {
+          ${LINEAGE_LOTS_FIELDS}
         }
       }
     }
@@ -253,6 +271,21 @@ async function fetchPurcon(accessToken: string, maxRecords: number = 100000): Pr
   return items;
 }
 
+async function fetchLots(accessToken: string, maxRecords: number = 100000): Promise<Array<Record<string, unknown>>> {
+  const query = buildLotsQuery(maxRecords);
+  console.log('Fetching lineage_lots...');
+  
+  const data = await queryGraphQL(accessToken, query) as {
+    lineage_lots?: {
+      items?: Array<Record<string, unknown>>;
+    };
+  };
+
+  const items = data.lineage_lots?.items || [];
+  console.log(`Fetched ${items.length} lots records`);
+  return items;
+}
+
 async function fetchSinglePage(accessToken: string, pageSize: number, cursor?: string): Promise<PageResult> {
   const query = buildCursorQuery(pageSize, cursor);
   
@@ -290,7 +323,7 @@ serve(async (req) => {
 
     const body = await req.json();
     const { 
-      action = 'fetch', // 'fetch' | 'get_pages' | 'fetch_by_page' | 'fetch_farmers' | 'fetch_purcon'
+      action = 'fetch', // 'fetch' | 'get_pages' | 'fetch_by_page' | 'fetch_farmers' | 'fetch_purcon' | 'fetch_lots'
       pageSize = 10000, 
       cursor,
       pageInfo 
@@ -335,6 +368,17 @@ serve(async (req) => {
         JSON.stringify({ 
           lineage_farmers: farmers, 
           record_count: farmers.length 
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (action === 'fetch_lots') {
+      const lots = await fetchLots(accessToken, pageSize);
+      return new Response(
+        JSON.stringify({ 
+          lineage_lots: lots, 
+          record_count: lots.length 
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
