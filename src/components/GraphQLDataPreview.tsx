@@ -246,7 +246,9 @@ function ErrorPanel({
 
 export function GraphQLDataPreview({ autoFetch = false }: GraphQLDataPreviewProps) {
   const [farmerRecords, setFarmerRecords] = useState<Array<Record<string, unknown>>>([]);
+  const [purconRecords, setPurconRecords] = useState<Array<Record<string, unknown>>>([]);
   const [isExporting, setIsExporting] = useState(false);
+  const [exportTarget, setExportTarget] = useState<'farmers' | 'purcon' | null>(null);
   const [exportProgress, setExportProgress] = useState<ExportProgress>({
     currentPage: '',
     pagesCompleted: [],
@@ -258,11 +260,12 @@ export function GraphQLDataPreview({ autoFetch = false }: GraphQLDataPreviewProp
   const [showSuccess, setShowSuccess] = useState(false);
   const cancelledRef = useRef(false);
 
-  const doExport = useCallback(async () => {
+  const doExport = useCallback(async (target: 'farmers' | 'purcon') => {
     setIsExporting(true);
+    setExportTarget(target);
     setShowSuccess(false);
     setExportProgress({
-      currentPage: 'Fetching farmers data...',
+      currentPage: `Fetching ${target} data...`,
       pagesCompleted: [],
       totalPages: 1,
       totalRecords: 0,
@@ -272,35 +275,38 @@ export function GraphQLDataPreview({ autoFetch = false }: GraphQLDataPreviewProp
     cancelledRef.current = false;
 
     try {
+      const action = target === 'farmers' ? 'fetch_farmers' : 'fetch_purcon';
       const { data, error } = await supabase.functions.invoke('query-fabric-graphql', {
-        body: { action: 'fetch_farmers', pageSize: 100000 }
+        body: { action, pageSize: 100000 }
       });
 
       if (error) throw new Error(error.message);
       if (data?.error) throw new Error(data.error);
 
-      const records = data?.lineage_farmers || [];
-      console.log(`[Export] Fetched ${records.length} farmer records`);
+      const key = target === 'farmers' ? 'lineage_farmers' : 'lineage_purcon';
+      const records = data?.[key] || [];
+      console.log(`[Export] Fetched ${records.length} ${target} records`);
 
-      setFarmerRecords(records);
+      if (target === 'farmers') setFarmerRecords(records);
+      else setPurconRecords(records);
 
       if (records.length > 0) {
         setExportProgress(prev => ({
           ...prev,
           isComplete: true,
           totalRecords: records.length,
-          pagesCompleted: [{ pageInfo: 'farmers', recordCount: records.length }],
+          pagesCompleted: [{ pageInfo: target, recordCount: records.length }],
         }));
-        downloadAsExcel([], records, 'lineage_farmers');
+        downloadAsExcel([], records, `lineage_${target}`);
         setShowSuccess(true);
       } else {
-        throw new Error('No farmer records found');
+        throw new Error(`No ${target} records found`);
       }
     } catch (err) {
       console.error('[Export] Error:', err);
       setExportProgress(prev => ({
         ...prev,
-        error: err instanceof Error ? err.message : 'Failed to fetch farmers data',
+        error: err instanceof Error ? err.message : `Failed to fetch ${target} data`,
       }));
     } finally {
       setIsExporting(false);
@@ -318,6 +324,8 @@ export function GraphQLDataPreview({ autoFetch = false }: GraphQLDataPreviewProp
     setExportProgress(prev => ({ ...prev, error: null }));
   };
 
+  const activeRecords = exportTarget === 'purcon' ? purconRecords : farmerRecords;
+
   return (
     <Card className="w-full flex-1 flex flex-col">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4 flex-shrink-0">
@@ -331,20 +339,20 @@ export function GraphQLDataPreview({ autoFetch = false }: GraphQLDataPreviewProp
           </CardDescription>
         </div>
         <div className="flex items-center gap-4">
-          {farmerRecords.length > 0 && !isExporting && (
+          {activeRecords.length > 0 && !isExporting && (
             <div className="flex flex-col items-end">
               <span className="text-2xl font-bold text-primary">
-                {farmerRecords.length.toLocaleString()}
+                {activeRecords.length.toLocaleString()}
               </span>
               <span className="text-xs text-muted-foreground">Records</span>
             </div>
           )}
           <Button
-            onClick={() => doExport()}
+            onClick={() => doExport('farmers')}
             disabled={isExporting}
             className="gap-2"
           >
-            {isExporting ? (
+            {isExporting && exportTarget === 'farmers' ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
                 Exporting...
@@ -353,6 +361,24 @@ export function GraphQLDataPreview({ autoFetch = false }: GraphQLDataPreviewProp
               <>
                 <FileSpreadsheet className="w-4 h-4" />
                 Export Farmers
+              </>
+            )}
+          </Button>
+          <Button
+            onClick={() => doExport('purcon')}
+            disabled={isExporting}
+            variant="secondary"
+            className="gap-2"
+          >
+            {isExporting && exportTarget === 'purcon' ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Exporting...
+              </>
+            ) : (
+              <>
+                <FileSpreadsheet className="w-4 h-4" />
+                Export Purchase Contracts
               </>
             )}
           </Button>
@@ -369,8 +395,8 @@ export function GraphQLDataPreview({ autoFetch = false }: GraphQLDataPreviewProp
 
         {showSuccess && !isExporting && (
           <SuccessPanel 
-            totalRecords={farmerRecords.length} 
-            onExportAgain={() => doExport()} 
+            totalRecords={activeRecords.length} 
+            onExportAgain={() => doExport(exportTarget || 'farmers')} 
           />
         )}
 
@@ -379,13 +405,13 @@ export function GraphQLDataPreview({ autoFetch = false }: GraphQLDataPreviewProp
             error={exportProgress.error}
             currentPage={exportProgress.currentPage}
             totalRecords={exportProgress.totalRecords}
-            onRetry={() => doExport()}
+            onRetry={() => doExport(exportTarget || 'farmers')}
             onDownloadPartial={handleDownloadPartial}
             onCancel={handleClearError}
           />
         )}
 
-        <DataTable data={farmerRecords} />
+        <DataTable data={activeRecords} />
       </CardContent>
     </Card>
   );
