@@ -179,7 +179,7 @@ function buildFarmersQuery(first: number): string {
 function buildPurconQuery(first: number): string {
   return `
     query {
-      lineage_purcon(first: ${first}) {
+      lineage_purcons(first: ${first}) {
         items {
           ${LINEAGE_PURCON_FIELDS}
         }
@@ -243,12 +243,12 @@ async function fetchPurcon(accessToken: string, maxRecords: number = 100000): Pr
   console.log('Fetching lineage_purcon...');
   
   const data = await queryGraphQL(accessToken, query) as {
-    lineage_purcon?: {
+    lineage_purcons?: {
       items?: Array<Record<string, unknown>>;
     };
   };
 
-  const items = data.lineage_purcon?.items || [];
+  const items = data.lineage_purcons?.items || [];
   console.log(`Fetched ${items.length} purcon records`);
   return items;
 }
