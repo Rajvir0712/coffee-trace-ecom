@@ -286,7 +286,7 @@ async function fetchPurcon(accessToken: string, maxRecords: number = 100000): Pr
 }
 
 async function fetchLots(accessToken: string, maxRecords: number = 100000): Promise<Array<Record<string, unknown>>> {
-  console.log('Fetching lots (trying lineage_lots then lineage_lot)...');
+  console.log('Fetching lots (trying lineage_lots, then deriving from lineage_nodes if needed)...');
 
   const tryQuery = async (rootField: string) => {
     const query = `
@@ -302,15 +302,49 @@ async function fetchLots(accessToken: string, maxRecords: number = 100000): Prom
     return data[rootField]?.items || [];
   };
 
+  const fetchFromNodes = async () => {
+    const query = `
+      query {
+        lineage_nodes(first: ${maxRecords}) {
+          items {
+            lot_no
+            page_info
+          }
+        }
+      }
+    `;
+    const data = await queryGraphQL(accessToken, query) as {
+      lineage_nodes?: { items?: Array<Record<string, unknown>> };
+    };
+    const nodes = data.lineage_nodes?.items || [];
+    const uniqueLots = new Map<string, Record<string, unknown>>();
+
+    for (const node of nodes) {
+      const lotNo = node.lot_no;
+      if (lotNo === null || lotNo === undefined || String(lotNo).trim() === '') continue;
+      const key = `${String(lotNo)}::${String(node.page_info ?? '')}`;
+      if (!uniqueLots.has(key)) {
+        uniqueLots.set(key, { lot_no: lotNo, page_info: node.page_info ?? null });
+      }
+    }
+
+    return Array.from(uniqueLots.values());
+  };
+
   try {
     const items = await tryQuery('lineage_lots');
     console.log(`Fetched ${items.length} lots records (lineage_lots)`);
-    return items;
+    if (items.length > 0) return items;
+
+    console.warn('lineage_lots returned 0 records, deriving lots from lineage_nodes');
+    const derivedItems = await fetchFromNodes();
+    console.log(`Derived ${derivedItems.length} lots records from lineage_nodes`);
+    return derivedItems;
   } catch (e) {
-    console.warn('lineage_lots failed, falling back to lineage_lot:', e instanceof Error ? e.message : e);
-    const items = await tryQuery('lineage_lot');
-    console.log(`Fetched ${items.length} lots records (lineage_lot)`);
-    return items;
+    console.warn('lineage_lots failed, deriving lots from lineage_nodes:', e instanceof Error ? e.message : e);
+    const derivedItems = await fetchFromNodes();
+    console.log(`Derived ${derivedItems.length} lots records from lineage_nodes`);
+    return derivedItems;
   }
 }
 
