@@ -286,18 +286,32 @@ async function fetchPurcon(accessToken: string, maxRecords: number = 100000): Pr
 }
 
 async function fetchLots(accessToken: string, maxRecords: number = 100000): Promise<Array<Record<string, unknown>>> {
-  const query = buildLotsQuery(maxRecords);
-  console.log('Fetching lineage_lots...');
-  
-  const data = await queryGraphQL(accessToken, query) as {
-    lineage_lots?: {
-      items?: Array<Record<string, unknown>>;
-    };
+  console.log('Fetching lots (trying lineage_lots then lineage_lot)...');
+
+  const tryQuery = async (rootField: string) => {
+    const query = `
+      query {
+        ${rootField}(first: ${maxRecords}) {
+          items {
+            ${LINEAGE_LOTS_FIELDS}
+          }
+        }
+      }
+    `;
+    const data = await queryGraphQL(accessToken, query) as Record<string, { items?: Array<Record<string, unknown>> }>;
+    return data[rootField]?.items || [];
   };
 
-  const items = data.lineage_lots?.items || [];
-  console.log(`Fetched ${items.length} lots records`);
-  return items;
+  try {
+    const items = await tryQuery('lineage_lots');
+    console.log(`Fetched ${items.length} lots records (lineage_lots)`);
+    return items;
+  } catch (e) {
+    console.warn('lineage_lots failed, falling back to lineage_lot:', e instanceof Error ? e.message : e);
+    const items = await tryQuery('lineage_lot');
+    console.log(`Fetched ${items.length} lots records (lineage_lot)`);
+    return items;
+  }
 }
 
 async function fetchSinglePage(accessToken: string, pageSize: number, cursor?: string): Promise<PageResult> {
