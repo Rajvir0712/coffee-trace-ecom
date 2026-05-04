@@ -257,18 +257,32 @@ async function fetchFarmers(accessToken: string, maxRecords: number = 100000): P
 }
 
 async function fetchPurcon(accessToken: string, maxRecords: number = 100000): Promise<Array<Record<string, unknown>>> {
-  const query = buildPurconQuery(maxRecords);
-  console.log('Fetching lineage_purcon...');
-  
-  const data = await queryGraphQL(accessToken, query) as {
-    lineage_purcons?: {
-      items?: Array<Record<string, unknown>>;
-    };
+  console.log('Fetching purcon (trying lineage_purcons then lineage_purcon)...');
+
+  const tryQuery = async (rootField: string) => {
+    const query = `
+      query {
+        ${rootField}(first: ${maxRecords}) {
+          items {
+            ${LINEAGE_PURCON_FIELDS}
+          }
+        }
+      }
+    `;
+    const data = await queryGraphQL(accessToken, query) as Record<string, { items?: Array<Record<string, unknown>> }>;
+    return data[rootField]?.items || [];
   };
 
-  const items = data.lineage_purcons?.items || [];
-  console.log(`Fetched ${items.length} purcon records`);
-  return items;
+  try {
+    const items = await tryQuery('lineage_purcons');
+    console.log(`Fetched ${items.length} purcon records (lineage_purcons)`);
+    return items;
+  } catch (e) {
+    console.warn('lineage_purcons failed, falling back to lineage_purcon:', e instanceof Error ? e.message : e);
+    const items = await tryQuery('lineage_purcon');
+    console.log(`Fetched ${items.length} purcon records (lineage_purcon)`);
+    return items;
+  }
 }
 
 async function fetchLots(accessToken: string, maxRecords: number = 100000): Promise<Array<Record<string, unknown>>> {
